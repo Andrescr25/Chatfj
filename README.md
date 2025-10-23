@@ -1,227 +1,102 @@
-# 🤖 Sistema de Facilitadores Judiciales - Costa Rica
+# Sistema de Facilitadores Judiciales - Costa Rica
 
-Sistema inteligente de asistencia legal con IA híbrida (MockLLM + Groq API) para facilitadores judiciales.
+Sistema inteligente de asistencia legal con IA híbrida.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## 🌐 Acceso
-
-### 💻 Local
-```bash
-python inicio.py
-# Abre: http://localhost:8501
-```
-
-### 📱 Red Local (mismo WiFi)
-```bash
-# Desde tu móvil en la misma red:
-http://192.168.0.16:8501
-```
-
-### 🌍 Internet (desde cualquier lugar)
-```bash
-# Inicia servidor + túnel público:
-.\bin\start_public.ps1
-
-# O solo túnel (si servidor ya está corriendo):
-.\bin\start_ngrok.ps1
-
-# Copia la URL pública (ej: https://abc123.ngrok-free.app)
-```
-
-Ver guías completas:
-- **Red local:** `docs/ACCESO_MOVIL.md`
-- **Internet:** `docs/ACCESO_INTERNET.md`
-
----
+[![React](https://img.shields.io/badge/React-18+-61DAFB.svg)](https://reactjs.org/)
 
 ## 🚀 Inicio Rápido
 
-```bash
-# Instalar dependencias
-pip install -r requirements.txt
+### Desarrollo Local
 
-# Iniciar sistema completo (API + Web)
-python inicio.py
+```bash
+# Opción 1: Script automático
+./start.sh
+
+# Opción 2: Manual
+# Terminal 1 - Backend
+source venv/bin/activate
+python -m uvicorn src.api:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 - Frontend
+cd frontend
+npm start
 ```
 
-El sistema estará disponible en:
-- **Interfaz Web**: http://localhost:8501
+Accede en:
+- **Frontend**: http://localhost:3000
 - **API**: http://localhost:8000
-- **Documentación API**: http://localhost:8000/docs
+- **Docs**: http://localhost:8000/docs
+
+### Deploy en Render (Gratis)
+
+Ver **[RENDER.md](RENDER.md)** para instrucciones completas.
 
 ## 📋 Requisitos
 
-- Python 3.9 o superior
-- 4GB RAM mínimo
-- Conexión a Internet (para Groq API)
+- Python 3.9+
+- Node.js 14+
+- API Key de Groq (gratis en [console.groq.com](https://console.groq.com))
 
 ## ⚙️ Configuración
 
-### 1. API Key de Groq (Recomendado - GRATIS)
-
-1. Crea una cuenta en [console.groq.com](https://console.groq.com)
-2. Genera una API Key
-3. Edita `config/config.env`:
-   ```env
-   GROQ_API_KEY=tu_api_key_aqui
-   USE_GROQ_API=true
-   ```
-
-## 🧠 Sistema Híbrido
-
-El sistema combina **dos tipos de IA**:
-
-| Componente | Velocidad | Uso | Coste |
-|------------|-----------|-----|-------|
-| **MockLLM** | < 1s | Preguntas comunes | Gratis |
-| **Groq API** | 1-3s | Preguntas variadas | Gratis (14,400 req/día) |
-
-## 📁 Estructura del Proyecto
-
-```
-sistema-facilitadores-judiciales/
-├── src/                    # Código fuente principal
-│   ├── api.py             # Backend (FastAPI + IA)
-│   ├── app.py             # Frontend (Streamlit)
-│   └── __init__.py
-├── bin/                    # Scripts de ejecución
-│   ├── run.py             # Iniciar sistema completo
-│   ├── start.py           # Solo API
-│   ├── console.py         # Interfaz consola
-│   └── status.py          # Verificar estado
-├── tests/                  # Tests
-│   └── test.py
-├── config/                 # Configuración
-│   ├── config.env         # Variables de entorno
-│   └── security.py        # Autenticación
-├── data/                   # Datos del sistema
-│   ├── docs/              # Documentos legales (PDFs)
-│   └── chroma/            # Base de datos vectorial
-├── scripts/                # Scripts auxiliares
-│   └── ingest.py          # Procesar documentos
-├── docs/                   # Documentación
-│   ├── README_SISTEMA.md
-│   └── PROYECTO_ORGANIZADO.md
-├── models/                 # Modelos LLM locales (opcional)
-├── inicio.py              # 🚀 Script principal
-├── requirements.txt       # Dependencias
-└── README.md              # Este archivo
+### Local
+Edita `config/config.env`:
+```env
+GROQ_API_KEY=tu_api_key_aqui
+USE_GROQ_API=true
 ```
 
-## 💻 Uso
-
-### Interfaz Web (Recomendado)
-```bash
-python inicio.py
-# Abre http://localhost:8501
-```
-
-### API REST
-```bash
-python bin/start.py
-
-# Probar con curl
-curl -X POST "http://localhost:8000/ask" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "¿Cómo solicito pensión alimentaria?"}'
-```
-
-### Consola
-```bash
-python bin/console.py
-```
-
-### Verificar Estado
-```bash
-python bin/status.py
-```
-
-## 🧪 Tests
-
-```bash
-python tests/test.py
-```
-
-## 📚 Agregar Documentos Nuevos
-
-```bash
-# 1. Coloca tus PDFs en data/docs/
-# 2. Ejecuta el script de ingestión:
-python scripts/ingest.py
-```
+### Render
+Configura en el dashboard:
+- `GROQ_API_KEY`
+- `REACT_APP_API_URL`
 
 ## 🎯 Características
 
-✅ **Respuestas instantáneas** para preguntas comunes  
-✅ **IA avanzada (Groq)** para preguntas complejas  
-✅ **Búsqueda semántica** en documentos legales  
-✅ **Historial conversacional** con contexto  
-✅ **Cache inteligente** para optimizar rendimiento  
-✅ **Interfaz minimalista** tipo ChatGPT  
-✅ **100% GRATIS** sin límites de uso razonables
+- ✨ Interfaz moderna tipo ChatGPT
+- ⚡ Respuestas instantáneas (< 1s)
+- 🤖 IA híbrida (MockLLM + Groq)
+- 📱 Responsive
+- 💬 Historial de conversaciones
+- 🚀 Deploy gratis en Render
 
 ## 🛠️ Tecnologías
 
-- **Backend**: FastAPI, Uvicorn
-- **Frontend**: Streamlit
-- **IA**: Groq API (Llama 3.1), MockLLM
-- **Base de Datos**: ChromaDB (vectorial)
-- **Embeddings**: sentence-transformers
-- **Docs**: PyPDF, python-docx
+**Backend**: FastAPI, Groq API (Llama 3.1), ChromaDB, LangChain  
+**Frontend**: React 18, CSS moderno
 
-## 📖 Documentación Adicional
+## 📁 Estructura
 
-- [Guía Completa del Sistema](docs/README_SISTEMA.md)
-- [Organización del Proyecto](docs/PROYECTO_ORGANIZADO.md)
-- [API Documentation](http://localhost:8000/docs) (cuando esté corriendo)
-
-## 🐛 Troubleshooting
-
-### Error: GROQ_API_KEY no configurada
-```bash
-# Edita config/config.env y agrega tu API Key
-nano config/config.env
+```
+sistema-facilitadores-judiciales/
+├── frontend/              # React App
+│   ├── public/           # Archivos públicos
+│   └── src/              # Código fuente React
+│       ├── App.js        # Componente principal
+│       ├── App.css       # Estilos
+│       └── index.js      # Entry point
+├── src/                  # Backend API
+│   └── api.py           # FastAPI
+├── config/               # Configuración
+│   ├── config.env       # Variables de entorno
+│   └── security.py      # Seguridad
+├── data/docs/            # PDFs legales (35 documentos)
+├── scripts/              # Scripts auxiliares
+│   └── ingest.py        # Procesar documentos
+├── start.sh             # Inicio rápido
+├── build.sh             # Build producción
+├── render.yaml          # Config Render
+├── Procfile             # Deploy config
+└── requirements.txt     # Dependencias Python
 ```
 
-### Error: Módulo no encontrado
-```bash
-pip install -r requirements.txt
-```
+## 💰 Costos
 
-### Sistema lento
-- Verifica que `USE_GROQ_API=true` en `config/config.env`
-- MockLLM debe responder en < 1s
-- Groq debe responder en < 3s
-
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el proyecto
-2. Crea una rama (`git checkout -b feature/nueva-funcionalidad`)
-3. Commit tus cambios (`git commit -am 'Agregar nueva funcionalidad'`)
-4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
-
-## 👥 Autores
-
-Sistema de Facilitadores Judiciales de Costa Rica
-
-## 📞 Soporte
-
-Para problemas o preguntas:
-- Revisa la [documentación](docs/)
-- Abre un [issue](https://github.com/tu-usuario/sistema-facilitadores-judiciales/issues)
-- Ejecuta `python bin/status.py` para diagnóstico
+**$0/mes** con plan gratuito de Render + Groq API
 
 ---
 
-⭐ Si este proyecto te ayudó, dale una estrella en GitHub!
+**Deploy**: Ver [RENDER.md](RENDER.md)  
+Sistema de Facilitadores Judiciales de Costa Rica 🇨🇷

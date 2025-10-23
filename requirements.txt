@@ -20,8 +20,7 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.0.0
 
-# Interfaz web
-streamlit>=1.28.0
+# Interfaz web (React - ver frontend/)
 
 # Procesamiento de documentos
 pypdf>=3.17.0

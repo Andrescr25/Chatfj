@@ -16,19 +16,19 @@ logger = logging.getLogger(__name__)
 
 # Importaciones de LangChain
 try:
-    from langchain.document_loaders import (
+    from langchain_community.document_loaders import (
         TextLoader, 
-        UnstructuredPDFLoader, 
+        PyPDFLoader,
         Docx2txtLoader,
         DirectoryLoader
     )
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain.embeddings import SentenceTransformerEmbeddings
-    from langchain.vectorstores import Chroma
-    from langchain.schema import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_community.embeddings import SentenceTransformerEmbeddings
+    from langchain_community.vectorstores import Chroma
+    from langchain_core.documents import Document
 except ImportError as e:
     logger.error(f"Error importando LangChain: {e}")
-    logger.error("Ejecuta: pip install langchain langchain-community")
+    logger.error("Ejecuta: pip install langchain langchain-community pypdf")
     sys.exit(1)
 
 # Configuración
@@ -73,7 +73,7 @@ def load_documents(data_dir: str) -> List[Document]:
             if file_path.suffix.lower() == '.txt':
                 loader = TextLoader(str(file_path), encoding='utf-8')
             elif file_path.suffix.lower() == '.pdf':
-                loader = UnstructuredPDFLoader(str(file_path))
+                loader = PyPDFLoader(str(file_path))
             elif file_path.suffix.lower() == '.docx':
                 loader = Docx2txtLoader(str(file_path))
             else:

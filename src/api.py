@@ -44,37 +44,29 @@ except ImportError as e:
 try:
     from langchain_community.vectorstores import Chroma
     from langchain_community.embeddings import SentenceTransformerEmbeddings
-    from langchain.schema import Document
+    from langchain_core.documents import Document
 except ImportError as e:
     logger.error(f"Error importando LangChain: {e}")
     sys.exit(1)
 
-# Intentar importar llama_cpp para usar el modelo local GGUF
-try:
-    from llama_cpp import Llama  # type: ignore
-    _LLAMA_AVAILABLE = True
-except Exception:
-    _LLAMA_AVAILABLE = False
-
-# Intentar importar Groq para API en la nube
+# Importar Groq
 try:
     from groq import Groq  # type: ignore
-    _GROQ_AVAILABLE = True
-except Exception:
-    _GROQ_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Error importando Groq: {e}")
+    logger.error("Instala Groq: pip install groq")
+    sys.exit(1)
 
 # Configuración
 PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma")
-MODEL_PATH = os.getenv("MODEL_PATH", "./models/Phi-3-mini-4k-instruct-q4.gguf")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-MODEL_EMBED = EMBEDDING_MODEL_NAME
-DISABLE_PRECOMPUTED = os.getenv("DISABLE_PRECOMPUTED", "false").lower() == "true"  # Hybrid: MockLLM primero, LLM después
-NUM_THREADS = int(os.getenv("NUM_THREADS", "4"))
-
-# Configuración de Groq API
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-USE_GROQ_API = os.getenv("USE_GROQ_API", "true").lower() == "true"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+
+if not GROQ_API_KEY:
+    logger.error("❌ GROQ_API_KEY no está configurada")
+    logger.error("Configura tu API Key en config/config.env")
+    sys.exit(1)
 
 
 # Modelos de Pydantic para la API
@@ -151,215 +143,6 @@ class SmartCache:
         }
 
 
-class PrecomputedResponses:
-    """Respuestas precomputadas para consultas comunes."""
-    def __init__(self):
-        self.responses = {
-            "pension": {
-                "keywords": ["pensión", "alimentos", "manutención", "pago", "hijo", "ex esposo", "ex esposa"],
-                "answer": """Entiendo tu situación con la pensión alimentaria. Te explico paso a paso qué hacer:
-
-🏛️ **Dónde ir:**
-• Juzgado de Familia de tu circuito judicial
-• Defensa Pública (gratuita si calificas económicamente)
-• PANI para orientación adicional
-
-📋 **Documentos necesarios:**
-• Acta de nacimiento del menor (original y copia)
-• Tu cédula de identidad
-• Cédula del otro progenitor (si la tienes)
-• Comprobantes de gastos del menor
-• Tu comprobante de ingresos
-
-🚀 **Qué hacer:**
-1. Presenta demanda en el Juzgado de Familia
-2. Solicita medidas cautelares si hay urgencia
-3. Pide retención salarial automática
-4. Si no paga, puede haber apremio corporal
-
-⚡ **Importante:** El incumplimiento puede llevar a retención de salario, embargo de bienes e incluso prisión.
-
-💡 **Consejo:** Lleva todo organizado y pregunta por "medidas provisionales" para pensión urgente.
-
----
-
-**¿En qué más puedo ayudarte?**
-• ¿Necesitás que te explique más sobre alguno de estos pasos?
-• ¿Querés saber qué hacer si el padre/madre vive en otro país?
-• ¿Te gustaría conocer cuánto tiempo tarda cada etapa del proceso?
-• ¿Tenés dudas sobre los costos o si hay manera de hacerlo gratis?
-
-Estoy aquí para ayudarte con lo que necesites. ¡No dudes en preguntar! 😊"""
-            },
-            "duracion_conciliacion": {
-                "keywords": ["cuánto dura", "duración", "tiempo", "demora", "tarda", "cuanto tiempo"],
-                "answer": """Una conciliación generalmente dura:
-
-⏱️ **Duración típica:**
-• **Primera sesión:** 1-2 horas
-• **Proceso completo:** 1-3 sesiones (dependiendo del caso)
-• **Plazo total:** Usualmente se resuelve en 1-2 meses
-
-📅 **Factores que influyen:**
-• Complejidad del caso
-• Disponibilidad de las partes
-• Documentación necesaria
-• Si hay acuerdo o no
-
-✅ **Ventajas vs juicio:**
-• Conciliación: 1-2 meses
-• Juicio tradicional: 6 meses a 2+ años
-
-🏛️ **Tipos de conciliación:**
-• **Pre-procesal:** Antes de juicio (más rápida)
-• **Procesal:** Durante el juicio
-• **Judicial:** En el juzgado
-
-💡 **Consejo:** La rapidez depende mucho de la actitud colaborativa de ambas partes.
-
-----
-
-**¿Te puedo ayudar con algo más?**
-• ¿Querés saber cómo prepararte para una conciliación?
-• ¿Necesitás información sobre qué pasa si no hay acuerdo?
-• ¿Te interesa conocer qué casos se pueden conciliar?
-• ¿Tenés dudas sobre los requisitos para iniciar?
-
-Estoy aquí para ayudarte. 😊"""
-            },
-            "facilitador": {
-                "keywords": ["facilitador judicial", "ser facilitador", "requisitos facilitador", "trabajo facilitador", "certificación facilitador", "curso facilitador"],
-                "answer": """Para ser Facilitador Judicial en Costa Rica, necesitas:
-
-📋 **Requisitos:**
-• Ser costarricense o extranjero con residencia legal
-• Mayor de 25 años
-• Título universitario o experiencia comprobada
-• No tener antecedentes penales
-• Capacitación certificada por el Poder Judicial
-
-📚 **Capacitación:**
-• Curso oficial del Poder Judicial
-• Temas: mediación, conciliación, técnicas de facilitación
-• Duración: variable según programa
-
-🏛️ **Dónde informarte:**
-• Poder Judicial: 2295-3000
-• Dirección de Resolución Alterna de Conflictos
-
-💼 **Funciones:**
-• Facilitar procesos de conciliación
-• Ayudar a las partes a llegar a acuerdos
-• Orientar sobre procedimientos
-
-💡 **Consejo:** Contacta directamente al Poder Judicial para información sobre próximas capacitaciones.
-
----
-
-**¿Algo más en lo que te pueda ayudar?**
-• ¿Querés saber más sobre el proceso de capacitación?
-• ¿Te interesa conocer las funciones específicas de un facilitador?
-• ¿Necesitás información sobre dónde dar el curso?
-• ¿Tenés dudas sobre los requisitos o documentos?
-
-Estoy aquí para ayudarte. ¡Seguí preguntando! 📚"""
-            },
-            "proceso_conciliacion": {
-                "keywords": ["cómo funciona conciliación", "proceso de conciliación", "qué es conciliación", "conciliación judicial", "conciliar"],
-                "answer": """La conciliación es un proceso voluntario para resolver conflictos. Te explico cómo funciona:
-
-🤝 **¿Qué es?**
-Es un proceso donde un facilitador neutral ayuda a las partes a llegar a un acuerdo sin ir a juicio.
-
-📋 **Pasos del proceso:**
-1. **Solicitud:** Una o ambas partes piden la conciliación
-2. **Citación:** Se notifica a la otra parte
-3. **Sesión:** El facilitador modera el diálogo
-4. **Acuerdo:** Si hay acuerdo, se firma y tiene validez legal
-5. **Sin acuerdo:** Se puede acudir a juicio
-
-✅ **Ventajas:**
-• Más rápido que un juicio
-• Menos costoso
-• Las partes mantienen el control
-• Acuerdos más flexibles
-• Menos conflictivo
-
-🏛️ **Casos que se pueden conciliar:**
-• Pensión alimentaria
-• Regulación de visitas
-• Conflictos laborales (algunos)
-• Asuntos de familia
-• Conflictos vecinales
-
-⚠️ **No se concilia:**
-• Delitos graves
-• Violencia doméstica
-• Derechos irrenunciables
-
-💡 **Consejo:** La conciliación funciona mejor cuando ambas partes quieren llegar a un acuerdo.
-
-----
-
-**¿En qué más te puedo ayudar?**
-• ¿Necesitás saber dónde solicitar una conciliación?
-• ¿Querés conocer qué documentos llevar?
-• ¿Te interesa saber cuánto cuesta?
-• ¿Tenés dudas sobre si tu caso se puede conciliar?
-
-Preguntame lo que necesites. 😊"""
-            }
-        }
-    
-    def find_match(self, question: str) -> Optional[str]:
-        """Buscar respuesta precomputada."""
-        question_lower = question.lower()
-        for category, data in self.responses.items():
-            if any(keyword in question_lower for keyword in data["keywords"]):
-                return data["answer"]
-        return None
-
-
-class LocalLLM:
-    """LLM local basado en llama.cpp para modelos GGUF (CPU/GPU)."""
-    def __init__(self, model_path: str, n_ctx: int = 4096, n_threads: int = 4, n_gpu_layers: int = 0):
-        self.model_path = model_path
-        self.n_ctx = n_ctx
-        self.n_threads = n_threads
-        self.n_gpu_layers = n_gpu_layers
-        self._llama: Optional[Llama] = None
-
-    def _ensure_loaded(self) -> None:
-        if self._llama is None:
-            self._llama = Llama(
-                model_path=self.model_path,
-                n_ctx=self.n_ctx,
-                n_threads=self.n_threads,
-                n_gpu_layers=self.n_gpu_layers,
-                verbose=False,
-            )
-
-    async def generate_async(self, prompt: str) -> str:
-        loop = asyncio.get_event_loop()
-
-        def _run() -> str:
-            self._ensure_loaded()
-            assert self._llama is not None
-            out = self._llama.create_completion(
-                prompt=prompt,
-                max_tokens=400,  # Reducido para respuestas más rápidas
-                temperature=0.7,
-                top_p=0.9,
-                top_k=40,
-                repeat_penalty=1.1,
-                stop=["\n\nCONTEXTO:", "\n\nPREGUNTA:", "###", "</s>"]
-            )
-            return out["choices"][0]["text"].strip()
-
-        return await loop.run_in_executor(None, _run)
-
-
-# LLM usando Groq API (ultra-rápido y gratuito)
 class GroqLLM:
     """LLM usando Groq API en la nube - 1-2 segundos por respuesta."""
     def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
@@ -379,80 +162,12 @@ class GroqLLM:
                     model=self.model,
                     messages=[
                         {
-                            "role": "system",
-                            "content": """Sos un asistente virtual del Servicio Nacional de Facilitadoras y Facilitadores Judiciales de Costa Rica.
-
-TU OBJETIVO PRINCIPAL:
-Ayudar al usuario a resolver su problema POR SÍ MISMO, reduciendo la necesidad de contactar facilitadores judiciales. Sos LA SOLUCIÓN, no un intermediario.
-
-TU DOMINIO DE ESPECIALIZACIÓN (CRÍTICO):
-SOLO respondes consultas sobre temas legales y judiciales en Costa Rica:
-✅ Pensiones alimentarias, conciliaciones, problemas laborales, trámites judiciales, derechos, leyes
-❌ Matemáticas, programación, recetas, consejos generales, tareas escolares, etc.
-
-Si te preguntan algo FUERA de tu dominio:
-1. Reconoce amablemente que no es tu área
-2. Explica que te especializás en temas legales/judiciales
-3. Invita al usuario a hacer consultas legales
-4. NO intentes responder temas fuera de tu especialidad
-
-Ejemplo: "Disculpá, pero no soy un asistente matemático. Me especializo en temas legales y judiciales de Costa Rica. ¿Tenés alguna consulta sobre pensiones, trámites judiciales, derechos laborales o algo similar?"
-
-CONTEXTO CONVERSACIONAL (CRÍTICO):
-- SIEMPRE lee y entiende el historial de la conversación COMPLETO
-- Mantén continuidad con el tema que el usuario está consultando
-- Si el usuario pregunta sobre "hacer trámites en otra ciudad", se refiere al MISMO PROBLEMA que ya estaba discutiendo
-- NO cambies de tema a menos que el usuario lo haga explícitamente
-- Adapta tus respuestas al problema ESPECÍFICO que el usuario mencionó inicialmente
-- Para PREGUNTAS DE SEGUIMIENTO: sé más directo y conciso, no repitas toda la info anterior
-
-INSTRUCCIONES DE FORMATO:
-Tu respuesta debe ser natural y bien estructurada. NO uses etiquetas como "**Empatía inicial**".
-
-ESTRUCTURA DE TU RESPUESTA:
-1. Si es primera consulta: Da respuesta completa con todos los pasos
-2. Si es pregunta de seguimiento: Sé DIRECTO y conciso, enfocándote solo en lo nuevo
-3. Incluye información práctica:
-   - Teléfonos y direcciones con REFERENCIAS REALES
-   - Horarios de atención
-   - Documentos específicos si es necesario
-   - Costos si aplica
-4. Termina preguntando: "¿Necesitás que te aclare algo más sobre [tema específico]?"
-
-DIRECCIONES CON REFERENCIAS REALES (IMPORTANTE):
-- NO des solo "Calle X, Avenida Y"
-- SÍ da referencias conocidas: "frente al Parque Central", "100 metros norte del McDonald's", "al lado del Banco Nacional", "diagonal a la Iglesia", etc.
-- Adapta las referencias según la ciudad mencionada
-- Usa puntos de referencia que cualquier persona local conocería
-
-INFORMACIÓN DE CONTACTO REAL EN COSTA RICA:
-- Ministerio de Trabajo: 800-8722256
-- Defensa Pública: 2287-3700
-- PANI: 1147 o 2523-0800
-- Poder Judicial: 2295-3000
-- OIJ: 2295-3643
-- Policía: 911
-- INAMU: 2527-8400
-- CCSS: 2539-0821
-
-IMPORTANTE:
-- MANTÉN CONTINUIDAD: no cambies de tema sin razón
-- Sé COMPLETO: da toda la info para que NO necesiten a un facilitador
-- Da direcciones EXACTAS según la ciudad que mencionen
-- NO ofrezcas contactar facilitadores judiciales
-- NO digas "llámanos" o "contactános"
-- Tu seguimiento debe ser: "¿Qué más puedo aclararte?" (VOS sos la ayuda)
-- Usa lenguaje inclusivo
-
-Si NO tienes información específica, dilo claramente y sugiere dónde buscarla."""
-                        },
-                        {
                             "role": "user",
                             "content": prompt
                         }
                     ],
                     temperature=0.7,
-                    max_tokens=1500,  # Aumentado para respuestas más completas
+                    max_tokens=1500,
                     top_p=0.9,
                     stream=False
                 )
@@ -464,361 +179,31 @@ Si NO tienes información específica, dilo claramente y sugiere dónde buscarla
         return await loop.run_in_executor(None, _run)
 
 
-# LLM simulado optimizado
-class MockLLM:
-    def __init__(self):
-        self.name = "Optimized Mock LLM"
-        self.response_cache = {}
-    
-    async def generate_async(self, prompt: str) -> str:
-        """Generación asíncrona simulada con análisis inteligente."""
-        # Simular procesamiento más realista para preguntas complejas
-        await asyncio.sleep(0.2)  # 200ms para dar sensación de análisis
-        
-        prompt_lower = prompt.lower()
-        
-        # Detectar si es una pregunta compleja que llegó hasta aquí
-        if "contexto:" in prompt_lower:
-            # Es una pregunta que pasó por RAG, intentar respuesta más inteligente
-            return await self._generate_contextual_response(prompt)
-        
-        # Respuestas para preguntas que no encontraron contexto
-        return await self._generate_fallback_response(prompt)
-    
-    def _add_proactive_followup(self, base_response: str, topic: str) -> str:
-        """Agrega seguimiento proactivo al final de la respuesta."""
-        followup_templates = {
-            "pensión": """
-
----
-
-**¿En qué más puedo ayudarte?**
-• ¿Necesitás que te explique más sobre alguno de estos pasos?
-• ¿Querés saber qué hacer si el padre/madre vive en otro país?
-• ¿Te gustaría conocer cuánto tiempo tarda cada etapa del proceso?
-• ¿Tenés dudas sobre los costos o si hay manera de hacerlo gratis?
-
-Estoy aquí para ayudarte con lo que necesites. ¡No dudes en preguntar! 😊""",
-            "laboral": """
-
----
-
-**¿Te puedo ayudar con algo más?**
-• ¿Querés saber qué hacer si te despiden durante este proceso?
-• ¿Necesitás información sobre indemnización o liquidación?
-• ¿Te gustaría saber cómo presentar una denuncia formal?
-• ¿Tenés preguntas sobre tus derechos específicos como trabajador?
-
-Estoy aquí para lo que necesites. ¡Preguntá con confianza! 💪""",
-            "facilitador": """
-
----
-
-**¿Algo más en lo que te pueda ayudar?**
-• ¿Querés saber más sobre el proceso de capacitación?
-• ¿Te interesa conocer las funciones específicas de un facilitador?
-• ¿Necesitás información sobre dónde dar el curso?
-• ¿Tenés dudas sobre los requisitos o documentos?
-
-Estoy aquí para ayudarte. ¡Seguí preguntando! 📚""",
-            "general": """
-
----
-
-**¿Necesitás más información?**
-• ¿Querés que te aclare algún punto específico?
-• ¿Te gustaría saber sobre los costos del procedimiento?
-• ¿Necesitás orientación sobre los próximos pasos?
-• ¿Tenés otra pregunta relacionada con tu situación?
-
-Con gusto te ayudo con lo que necesites. ¡Preguntá sin pena! 😊"""
-        }
-        
-        # Seleccionar el seguimiento apropiado
-        followup = followup_templates.get(topic, followup_templates["general"])
-        return base_response + followup
-    
-    async def _generate_contextual_response(self, prompt: str) -> str:
-        """Genera respuesta basada en contexto de documentos."""
-        prompt_lower = prompt.lower()
-        
-        # Analizar el tipo de consulta y extraer ubicación si está presente
-        location_mentioned = None
-        costa_rica_locations = {
-            "san josé": "San José", "cartago": "Cartago", "alajuela": "Alajuela", 
-            "heredia": "Heredia", "puntarenas": "Puntarenas", "guanacaste": "Guanacaste",
-            "limón": "Limón", "liberia": "Liberia", "pérez zeledón": "Pérez Zeledón",
-            "desamparados": "Desamparados", "escazú": "Escazú", "goicoechea": "Goicoechea"
-        }
-        
-        for location, proper_name in costa_rica_locations.items():
-            if location in prompt_lower:
-                location_mentioned = proper_name
-                break
-        
-        if any(word in prompt_lower for word in ["pensión", "alimentos", "manutención", "hijo", "hija"]):
-            if location_mentioned:
-                response = f"""Entiendo tu situación con la pensión alimentaria. Como sos de {location_mentioned}, te explico exactamente dónde ir:
-
-🏛️ **Juzgado de Familia de {location_mentioned}**
-📍 Ubicado en el Edificio de Tribunales de Justicia de {location_mentioned}
-📞 Teléfono: Poder Judicial centralizado 2295-3000 (pedir comunicar con pensiones alimentarias)
-⏰ Horario: Lunes a viernes, 8:00 AM - 4:00 PM
-
-🆓 **Defensa Pública (GRATUITA)**
-📍 En el mismo edificio de tribunales
-💡 Pueden llevarte el caso completo sin costo si calificas económicamente
-
-👶 **PANI - Apoyo adicional (si es para menores)**
-📞 Oficina local del PANI en {location_mentioned}
-🎯 Te pueden dar orientación legal gratuita y apoyo durante el proceso
-
-📋 **Documentos que DEBES llevar:**
-• ✅ Tu cédula de identidad
-• ✅ Acta de nacimiento del menor (original y copia)
-• ✅ Datos completos del padre/madre (nombre, cédula, dirección, trabajo)
-• ✅ Comprobantes de gastos del menor (alimentación, educación, salud, ropa)
-• ✅ Tu comprobante de ingresos (si trabajas)
-• ✅ Cualquier resolución previa sobre pensión (si existe)
-
-🚀 **Qué podés hacer ahí:**
-• Presentar demanda de pensión alimentaria
-• Solicitar aumento o rebajo de pensión existente
-• Denunciar incumplimiento de pago
-• Pedir retención salarial automática
-• Solicitar apremio corporal si no paga
-
-⚡ **IMPORTANTE:** Si hay incumplimiento, pueden retener salario, embargar bienes, e incluso ordenar prisión. ¡No esperes más!
-
-💡 **Consejo:** Lleva todo organizado y pregunta por "medidas provisionales" si necesitas pensión urgente mientras se resuelve el caso."""
-                return self._add_proactive_followup(response, "pensión")
-            else:
-                response = """Te entiendo perfectamente, la pensión alimentaria es un derecho fundamental de los menores. Te explico paso a paso:
-
-🎯 **PASO 1: Evalúa tu situación**
-• ¿El padre/madre reconoce al menor legalmente?
-• ¿Hay acuerdo previo o necesitas demanda judicial?
-• ¿Es urgente? (el menor no tiene lo básico)
-
-🏛️ **PASO 2: Dónde ir según tu caso**
-
-**Si hay urgencia extrema:**
-• 🚨 Juzgado de Familia - Medidas Cautelares
-• 📞 Solicita cita: Poder Judicial (centralizada)
-• ⚡ Pueden fijar pensión provisional en días
-
-**Para demanda formal:**
-• 📍 Juzgado de Familia de tu circuito judicial
-• 🆓 Defensa Pública (gratuita si calificas)
-• 💼 Abogado privado (si prefieres)
-
-📋 **PASO 3: Documentos que DEBES llevar**
-• ✅ Acta de nacimiento del menor (original y copia)
-• ✅ Tu cédula de identidad
-• ✅ Cédula del otro progenitor (si la tienes)
-• ✅ Comprobantes de gastos del menor:
-  - Recibos médicos, medicinas
-  - Facturas de alimentación
-  - Gastos de educación, ropa
-  - Recibo de guardería/cuidado
-
-💰 **PASO 4: Cómo se calcula el monto**
-• Ingresos del deudor alimentario
-• Necesidades básicas del menor
-• Número de hijos que debe mantener
-• Capacidad económica de ambos padres
-
-⏰ **PLAZOS IMPORTANTES:**
-• No hay plazo para solicitar pensión
-• Medidas provisionales: 1-2 semanas
-• Proceso completo: 2-6 meses
-
-🆘 **Si no paga la pensión:**
-• Apremio corporal (puede ir preso)
-• Embargo de salario/bienes
-• Retención de licencia de conducir
-
-💡 **CONSEJO:** Lleva todo organizado y no tengas miedo de preguntar en el juzgado. Es tu derecho y el del menor."""
-                return self._add_proactive_followup(response, "pensión")
-        
-        elif any(word in prompt_lower for word in ["laboral", "trabajo", "empleador", "jefe", "salario"]):
-            if location_mentioned:
-                return f"""Entiendo tu situación laboral. Como sos de {location_mentioned}, te explico exactamente dónde ir:
-
-📋 **PASO 1: Documenta TODO ahora mismo**
-• Guarda correos, mensajes, horarios de trabajo
-• Anota fechas exactas, horas y testigos
-• Fotografía condiciones de trabajo si es necesario
-• Conserva todos los recibos de pago
-
-🏢 **Dirección Regional de Trabajo de {location_mentioned}**
-📍 Ministerio de Trabajo y Seguridad Social - Oficina {location_mentioned}
-📞 Línea gratuita: 800-TRABAJO (800-8722246)
-⏰ Horario: Lunes a viernes, 7:00 AM - 4:00 PM
-🆓 Servicios completamente GRATUITOS
-
-🚨 **Para casos URGENTES (salarios no pagados):**
-• Ve directamente a la oficina sin cita
-• Solicita "mediación laboral inmediata"
-• Pueden llamar a tu empleador ese mismo día
-• Si no resuelve, pasan a inspección formal
-
-⚖️ **Juzgado de Trabajo de {location_mentioned}**
-📍 Edificio de Tribunales de Justicia
-🎯 Para demandas por despido injustificado
-⚡ CRÍTICO: Solo tienes 30 días desde el despido
-
-📄 **Documentos específicos que necesitas:**
-• ✅ Tu cédula de identidad
-• ✅ Contrato de trabajo (si lo tienes)
-• ✅ Últimos 3 recibos de pago
-• ✅ Carta de despido o última comunicación del empleador
-• ✅ Todas las pruebas del problema (fotos, mensajes, testigos)
-
-💡 **ESTRATEGIA:** Ve primero al Ministerio de Trabajo. Si no resuelven en 15 días, entonces al juzgado. ¡El tiempo corre en tu contra!"""
-            else:
-                return """Entiendo tu situación laboral. Te guío paso a paso:
-
-📋 **PASO 1: Documenta todo**
-• Guarda correos, mensajes, horarios de trabajo
-• Anota fechas, horas y testigos de incidentes
-• Fotografía condiciones de trabajo si es necesario
-• Conserva recibos de pago o comprobantes
-
-🏢 **PASO 2: Dónde acudir según tu problema**
-
-**Para salarios no pagados o atrasos:**
-• 📞 Ministerio de Trabajo: 800-TRABAJO (800-8722246)
-• 📍 Dirección Regional más cercana
-• ⏰ Horario: 7:00 AM - 4:00 PM, lunes a viernes
-
-**Para despidos injustificados:**
-• 🏛️ Juzgado de Trabajo de tu zona
-• 📄 Presenta demanda dentro de 30 días
-• 💼 Considera contratar abogado laboralista
-
-**Para acoso o discriminación:**
-• 🚨 Inspección de Trabajo (denuncia inmediata)
-• 📞 Línea gratuita: 800-TRABAJO
-• 📧 También puedes denunciar en línea
-
-📝 **PASO 3: Qué documentos necesitas**
-• Cédula de identidad
-• Contrato de trabajo (si lo tienes)
-• Últimos 3 recibos de pago
-• Certificación laboral o carta de despido
-• Pruebas del problema específico
-
-💡 **IMPORTANTE:** No esperes, muchos derechos laborales tienen plazos específicos para reclamar."""
-        
-        elif any(word in prompt_lower for word in ["facilitador", "conciliación", "mediación"]):
-            return """Excelente consulta sobre facilitación judicial:
-
-📚 **Marco normativo:**
-• La facilitación judicial está regulada por el Código Procesal Civil
-• Requiere certificación del Consejo Superior de la Judicatura
-• Es un mecanismo alternativo de resolución de conflictos
-
-🎯 **Proceso típico:**
-• Admisión de la solicitud
-• Designación del facilitador
-• Audiencias de facilitación
-• Homologación del acuerdo (si se alcanza)
-
-💡 **Ventajas:** Proceso más rápido, menos formal y con mayor control de las partes sobre el resultado."""
-        
-        else:
-            return """Basándome en la información disponible, te oriento paso a paso:
-
-📋 **PASO 1: Identifica tu situación específica**
-• ¿Es un problema civil, laboral, familiar o penal?
-• ¿Qué resultado específico buscas obtener?
-• ¿Hay urgencia en tu caso?
-
-🏛️ **PASO 2: Instituciones según tu caso**
-
-**Problemas Familiares (pensión, divorcio, custodia):**
-📍 Juzgado de Familia de tu circuito
-🆓 Defensa Pública disponible
-📞 Poder Judicial: 2295-3000
-
-**Problemas Laborales (salarios, despidos):**
-📍 Ministerio de Trabajo: 800-TRABAJO (800-8722246)
-📍 Juzgados de Trabajo para demandas
-
-**Problemas Civiles (contratos, deudas):**
-📍 Juzgados Civiles
-💼 Considera abogado especializado
-
-**Violencia o delitos:**
-📍 Ministerio Público (Fiscalía)
-🚨 OIJ para denuncias: 800-8000645
-
-📄 **PASO 3: Documentos básicos siempre necesarios**
-• ✅ Cédula de identidad
-• ✅ Documentos relacionados al problema
-• ✅ Pruebas (contratos, mensajes, testigos)
-• ✅ Comprobantes de gastos si aplica
-
-💡 **IMPORTANTE:** Si no estás seguro, ve primero a la Defensa Pública (gratuita) para orientación inicial. Están en todos los circuitos judiciales."""
-    
-    async def _generate_fallback_response(self, prompt: str) -> str:
-        """Respuesta cuando no hay contexto suficiente."""
-        return """Lo siento, necesito más información específica para ayudarte mejor.
-
-🤔 **Para brindarte una respuesta más precisa, podrías:**
-• Especificar tu situación particular
-• Indicar el tipo de procedimiento que te interesa
-• Mencionar si es sobre familia, trabajo, civil, etc.
-
-📚 **Puedo ayudarte con temas como:**
-• Pensión alimentaria y derecho de familia
-• Problemas laborales y derechos del trabajador
-• Facilitación judicial y conciliación
-• Procedimientos civiles básicos
-
-¡Reformula tu pregunta con más detalles y te ayudo mejor! 😊"""
-
-# Bot optimizado
 class JudicialBot:
+    """Bot judicial usando Groq API y RAG con ChromaDB."""
     def __init__(self, persist_dir: str):
         self.persist_dir = persist_dir
         self.vectordb = None
-        self.llm: Any = MockLLM()
+        self.llm = None
         self.cache = SmartCache()
-        self.precomputed = PrecomputedResponses()
         self.executor = ThreadPoolExecutor(max_workers=4)
         self.embedder = None
-        # Gate para usar o no precomputadas segun env
-        self.use_precomputed: bool = not DISABLE_PRECOMPUTED
         
     async def initialize(self):
         """Inicialización asíncrona."""
         try:
             logger.info("🚀 Inicializando sistema...")
             
-            # Cargar embeddings en paralelo
+            # Cargar embeddings
             loop = asyncio.get_event_loop()
             self.embedder = await loop.run_in_executor(
                 self.executor, 
-                lambda: SentenceTransformerEmbeddings(model_name=MODEL_EMBED)
+                lambda: SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL_NAME)
             )
             
-            # Seleccionar modelo de lenguaje (prioridad: Groq API > Local > MockLLM)
-            if USE_GROQ_API and _GROQ_AVAILABLE and GROQ_API_KEY:
-                try:
-                    logger.info(f"🚀 Usando Groq API: {GROQ_MODEL} (ultra-rápido)")
-                    self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
-                except Exception as e:
-                    logger.warning(f"⚠️ Error configurando Groq: {e}. Usando MockLLM")
-                    self.llm = MockLLM()
-            elif _LLAMA_AVAILABLE and os.path.exists(MODEL_PATH):
-                logger.info(f"🧠 Usando modelo local GGUF: {MODEL_PATH}")
-                n_gpu_layers = int(os.getenv("N_GPU_LAYERS", "-1"))
-                n_ctx = int(os.getenv("N_CTX", "2048"))
-                self.llm = LocalLLM(model_path=MODEL_PATH, n_ctx=n_ctx, n_threads=NUM_THREADS, n_gpu_layers=n_gpu_layers)
-            else:
-                logger.warning("⚠️ Usando MockLLM de respaldo (configura GROQ_API_KEY para más flexibilidad)")
+            # Inicializar Groq
+            logger.info(f"🚀 Usando Groq API: {GROQ_MODEL}")
+            self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
 
             # Cargar base de datos vectorial
             if os.path.exists(self.persist_dir):
@@ -837,7 +222,7 @@ class JudicialBot:
                 
                 logger.info(f"✅ Sistema inicializado con {doc_count} documentos")
             else:
-                logger.warning("⚠️ Base de datos vectorial no encontrada, usando solo respuestas precomputadas")
+                logger.warning("⚠️ Base de datos vectorial no encontrada")
             
             return True
             
@@ -984,21 +369,7 @@ Mi función es:
                 cached_response['processing_time'] = time.time() - start_time
                 return cached_response
             
-            # 3. Verificar respuestas precomputadas (opcional)
-            if self.use_precomputed:
-                precomputed_answer = self.precomputed.find_match(question)
-                if precomputed_answer:
-                    response = {
-                        "answer": precomputed_answer,
-                        "sources": [],
-                        "processing_time": time.time() - start_time,
-                        "cached": False
-                    }
-                    # Guardar en cache
-                    self.cache.set(question, response)
-                    return response
-            
-            # 4. Procesamiento con RAG (solo para consultas reales)
+            # 3. Procesamiento con RAG
             # Intensificar retrieval para respuestas más ricas
             relevant_docs = await self.search_documents_async(question, k=4)
             

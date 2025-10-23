@@ -1,0 +1,32 @@
+# Configuración para Render
+services:
+  # Backend API
+  - type: web
+    name: chat-fj-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9
+      - key: GROQ_API_KEY
+        sync: false
+      - key: USE_GROQ_API
+        value: true
+      - key: CHROMA_PERSIST_DIRECTORY
+        value: /tmp/chroma
+    healthCheckPath: /health
+    
+  # Frontend
+  - type: web
+    name: chat-fj-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/build
+    envVars:
+      - key: REACT_APP_API_URL
+        fromService:
+          type: web
+          name: chat-fj-api
+          property: url
+
