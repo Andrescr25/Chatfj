@@ -29,6 +29,9 @@ python-docx>=0.8.11
 # LLM API (Groq)
 groq>=0.11.0
 
+# Búsqueda web
+duckduckgo-search>=6.0.0
+
 # Utilidades
 requests>=2.31.0
 python-multipart>=0.0.9

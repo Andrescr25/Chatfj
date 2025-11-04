@@ -1,0 +1,124 @@
+{
+  "leyes": {
+    "7654": {
+      "nombre": "Ley de Pensiones Alimentarias",
+      "estado": "vigente",
+      "año": "1996",
+      "alcance": "Pensiones alimentarias, apremio corporal",
+      "articulos_clave": {
+        "24": "Apremio corporal - procedimiento",
+        "25": "Apremio corporal - ejecución"
+      }
+    },
+    "codigo_familia": {
+      "nombre": "Código Procesal de Familia",
+      "estado": "vigente",
+      "año": "2024",
+      "alcance": "Procedimientos familiares, pensiones, patria potestad"
+    },
+    "codigo_trabajo": {
+      "nombre": "Código de Trabajo",
+      "estado": "vigente",
+      "año": "1943",
+      "alcance": "Relaciones laborales, derechos de trabajadores, despidos"
+    },
+    "7600": {
+      "nombre": "Ley de Igualdad de Oportunidades para las Personas con Discapacidad",
+      "estado": "vigente",
+      "año": "1996",
+      "alcance": "Derechos de personas con discapacidad"
+    },
+    "7935": {
+      "nombre": "Ley Integral para la Persona Adulta Mayor",
+      "estado": "vigente",
+      "año": "1999",
+      "alcance": "Pensiones de vejez, protección adultos mayores"
+    },
+    "7476": {
+      "nombre": "Ley contra el Hostigamiento Sexual en el Empleo y la Docencia",
+      "estado": "vigente",
+      "año": "1995",
+      "alcance": "Protección contra hostigamiento en trabajo y educación"
+    },
+    "7586": {
+      "nombre": "Ley contra la Violencia Doméstica",
+      "estado": "vigente",
+      "año": "1996",
+      "alcance": "Medidas de protección, violencia intrafamiliar, órdenes de alejamiento",
+      "articulos_clave": {
+        "3": "Medidas de protección - tipos y alcance",
+        "4": "Procedimiento urgente para dictar medidas",
+        "5": "Violación de medidas de protección - sanciones",
+        "22": "Incumplimiento de medidas - apremio corporal"
+      }
+    },
+    "7739": {
+      "nombre": "Código de la Niñez y la Adolescencia",
+      "estado": "vigente",
+      "año": "1998",
+      "alcance": "Derechos de menores, protección integral, PANI",
+      "articulos_clave": {
+        "5": "Definición de niñez y adolescencia",
+        "12": "Derecho a la protección integral",
+        "55": "Instituciones con competencia - PANI",
+        "104": "Procedimientos de protección especial",
+        "135": "Medidas de protección - tipos",
+        "169": "Denuncia de situaciones de riesgo"
+      }
+    },
+    "pani": {
+      "nombre": "Ley Orgánica del Patronato Nacional de la Infancia",
+      "estado": "vigente",
+      "año": "1996",
+      "alcance": "Protección de menores, patria potestad"
+    },
+    "violencia_domestica": {
+      "nombre": "Ley contra la Violencia Doméstica",
+      "estado": "vigente",
+      "año": "1996",
+      "alcance": "Medidas de protección, violencia intrafamiliar"
+    },
+    "arrendamientos": {
+      "nombre": "Ley de Arrendamientos Urbanos y Suburbanos",
+      "estado": "vigente",
+      "año": "1995",
+      "alcance": "Relación arrendador-inquilino, desalojos, derechos de alquiler",
+      "articulos_clave": {
+        "5": "Causales de desahucio",
+        "6": "Procedimiento de desalojo",
+        "15": "Derechos del inquilino",
+        "16": "Obligaciones del arrendador",
+        "29": "Plazo de desalojo según causal",
+        "42": "Reajuste de alquileres"
+      }
+    },
+    "codigo_civil": {
+      "nombre": "Código Civil de Costa Rica",
+      "estado": "vigente",
+      "año": "1888",
+      "alcance": "Contratos, obligaciones, propiedad, arrendamientos"
+    }
+  },
+  "instituciones": {
+    "juzgado_pensiones": {
+      "nombre": "Juzgado de Pensiones Alimentarias",
+      "funciones": ["Dictar medidas", "Ordenar apremio", "Modificar cuotas"],
+      "no_funciones": ["Ejecutar apremio corporal", "Recibir denuncias penales"]
+    },
+    "adaptacion_social": {
+      "nombre": "Dirección General de Adaptación Social",
+      "funciones": ["Ejecutar órdenes de apremio corporal"],
+      "no_funciones": ["Recibir solicitudes directas", "Dictar medidas", "Modificar cuotas"]
+    },
+    "ministerio_trabajo": {
+      "nombre": "Ministerio de Trabajo y Seguridad Social",
+      "funciones": ["Recibir denuncias laborales", "Mediación laboral", "Inspección de trabajo"],
+      "telefono": "800-MTSS (800-6877)"
+    },
+    "pani": {
+      "nombre": "Patronato Nacional de la Infancia",
+      "funciones": ["Protección de menores", "Atención de casos de abuso"],
+      "telefono": "1147"
+    }
+  }
+}

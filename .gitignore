@@ -4,12 +4,30 @@ __pycache__/
 *$py.class
 *.so
 .Python
-*.egg-info/
-.installed.cfg
-*.egg
 venv/
-ENV/
 env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.sqlite3
+data/cache.db
+data/training.db
+
+# ChromaDB
+data/chroma/
+data/chroma_db/
+
+# Config con secretos
+config/config.env
+
+# Logs
+*.log
+logs/
+/tmp/
 
 # IDEs
 .vscode/
@@ -22,29 +40,21 @@ env/
 .DS_Store
 Thumbs.db
 
-# Config (mantener config.env en git, pero ignorar secretos)
-config/config.env
-
-# Logs
-*.log
-logs/
-/tmp/
-
-# Data
-data/chroma/
-*.db
-*.sqlite3
-
-# React
+# Node
 frontend/node_modules/
 frontend/build/
 frontend/.env.local
+frontend/.env.production.local
 
-# npm
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Temporal
+*.tmp
+temp/
 
-# Models
-models/*.gguf
-models/*.bin
+# Datos procesados (muy pesados)
+data/bloques_*.jsonl
+data/docs/*.pdf
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

@@ -4,18 +4,28 @@ services:
   - type: web
     name: chat-fj-api
     env: python
-    buildCommand: pip install -r requirements.txt
+    region: oregon
+    plan: starter
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python import_to_langchain_chroma.py
     startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9
+        value: 3.11
       - key: GROQ_API_KEY
         sync: false
-      - key: USE_GROQ_API
-        value: true
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
       - key: CHROMA_PERSIST_DIRECTORY
-        value: /tmp/chroma
-    healthCheckPath: /health
+        value: /opt/render/project/src/data/chroma_db
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+    disk:
+      name: chroma-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     
   # Frontend
   - type: web
