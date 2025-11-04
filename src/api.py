@@ -1563,7 +1563,7 @@ async def clear_cache():
 # ENDPOINTS DE MODO ENTRENAMIENTO
 # ============================================
 
-from training_db import TrainingDatabase
+from src.training_db import TrainingDatabase
 from pydantic import BaseModel
 
 # Instancia global de base de datos de entrenamiento
