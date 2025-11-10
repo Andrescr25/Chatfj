@@ -64,7 +64,7 @@ PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
 print(f"DEBUG: PERSIST_DIR = {PERSIST_DIR}")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 if not GROQ_API_KEY:
     logger.error("❌ GROQ_API_KEY no está configurada")
@@ -91,6 +91,10 @@ class QueryResponse(BaseModel):
     sources: List[Any] = []  # Puede ser string o dict con metadata
     processing_time: float = 0.0
     cached: bool = False
+    learned_from_feedback: bool = False  # Indica si la respuesta viene de corrección aprendida
+    correction_type: str = ""  # Tipo de corrección si aplica
+    similarity_score: float = 0.0  # Similitud con corrección aprendida
+    matched_question: str = ""  # Pregunta original que matcheó
 
 
 class SmartCache:
@@ -397,18 +401,8 @@ class LegalVerificationHelper:
 class WebSearchHelper:
     """Ayudante para buscar información actualizada en web usando DuckDuckGo."""
 
-    @staticmethod
-    def _get_generic_contact_info(query_lower: str) -> str:
-        """Retorna información de contacto genérica para instituciones conocidas."""
-        if any(word in query_lower for word in ["pensión", "pension", "alimentaria", "cuota"]):
-            return "Ministerio de Trabajo: 800-MTSS (800-6877). Poder Judicial: 800-PODER-J"
-        if any(word in query_lower for word in ["trabajo", "laboral", "despido", "horas"]):
-            return "Ministerio de Trabajo y Seguridad Social: Tel 800-MTSS (800-6877)"
-        if any(word in query_lower for word in ["pani", "niños", "menores"]):
-            return "PANI: Tel 1147 (línea gratuita 24/7)"
-        if any(word in query_lower for word in ["violencia", "denuncia", "oij"]):
-            return "OIJ: Tel 800-8000-645. Emergencias: 911"
-        return "Poder Judicial de Costa Rica: Tel 2295-3774"
+    # NOTA: Método eliminado - la información de contacto se aprende del modo entrenamiento
+    # El sistema ya no usa respuestas hardcodeadas
 
     @staticmethod
     async def search_web_info(query: str, location: str = None) -> Tuple[str, List[Dict[str, str]]]:
@@ -503,11 +497,11 @@ class WebSearchHelper:
                 if is_cr_domain or is_cr_content:
                     filtered_results.append(result)
 
-            # Si no hay resultados filtrados, retornar información genérica
+            # Si no hay resultados filtrados, retornar vacío
+            # NOTA: Información de contacto eliminada - se aprende del modo entrenamiento
             if not filtered_results:
                 logger.warning(f"No se encontraron resultados de sitios costarricenses. Resultados originales: {[r.get('href') for r in results[:3]]}")
-                # En lugar de no devolver nada, devolver info genérica de instituciones conocidas
-                return WebSearchHelper._get_generic_contact_info(query_lower), []
+                return "", []
 
             # Formatear resultados
             web_info = []
@@ -534,7 +528,7 @@ class WebSearchHelper:
 
 class GroqLLM:
     """LLM usando Groq API en la nube - 1-2 segundos por respuesta."""
-    def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
+    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
         if not api_key:
             raise ValueError("GROQ_API_KEY no está configurada. Obtén una gratis en: https://console.groq.com")
         self.client = Groq(api_key=api_key)
@@ -555,9 +549,9 @@ class GroqLLM:
                             "content": prompt
                         }
                     ],
-                    temperature=0.7,
-                    max_tokens=1500,
-                    top_p=0.9,
+                    temperature=0.8,
+                    max_tokens=2000,
+                    top_p=0.95,
                     stream=False
                 )
                 return completion.choices[0].message.content.strip()
@@ -602,7 +596,8 @@ class JudicialBot:
                     self.executor,
                     lambda: Chroma(
                         persist_directory=self.persist_dir,
-                        embedding_function=self.embedder
+                        embedding_function=self.embedder,
+                        collection_name="legal_documents"
                     )
                 )
                 
@@ -634,65 +629,17 @@ class JudicialBot:
         """
         question_lower = question.lower()
 
-        # Palabras clave ambiguas y sus contextos posibles
+        # NOTA: Las preguntas aclaratorias hardcodeadas fueron eliminadas
+        # El sistema debe aprender a hacer preguntas desde las correcciones en modo entrenamiento
+        # Solo mantenemos la detección de términos ambiguos básica
         AMBIGUOUS_TERMS = {
-            "acoso": {
-                "contexts": ["laboral", "sexual", "escolar", "cibernético", "callejero", "violencia doméstica"],
-                "questions": [
-                    "¿El acoso es en el trabajo, en la escuela, en la calle, o en su hogar?",
-                    "¿Quién lo está acosando? (jefe, compañero, pareja, extraño)",
-                    "¿Es acoso físico, verbal, sexual, o por redes sociales?"
-                ],
-                "categories": ["laboral", "violencia", "penal", "menores"]
-            },
-            "denuncia": {
-                "contexts": ["violencia", "robo", "estafa", "maltrato", "corrupción"],
-                "questions": [
-                    "¿Qué tipo de situación quiere denunciar?",
-                    "¿Es un delito (robo, agresión), violencia doméstica, o un problema laboral/civil?"
-                ],
-                "categories": ["penal", "violencia", "laboral", "civil"]
-            },
-            "pensión": {
-                "contexts": ["alimentaria", "vejez", "invalidez", "viudez"],
-                "questions": [
-                    "¿Es pensión alimentaria (para hijos) o pensión de la CCSS (vejez/invalidez)?",
-                    "¿Para quién es la pensión?"
-                ],
-                "categories": ["pension_alimentaria", "pension_vejez"]
-            },
-            "demanda": {
-                "contexts": ["laboral", "civil", "familia", "pensión"],
-                "questions": [
-                    "¿Qué tipo de demanda quiere interponer?",
-                    "¿Es por despido, divorcio, desalojo, pensión, o deuda?"
-                ],
-                "categories": ["laboral", "civil", "pension_alimentaria"]
-            },
-            "hijo": {
-                "contexts": ["pensión", "custodia", "maltrato", "registro"],
-                "questions": [
-                    "¿Su consulta es sobre pensión alimentaria, custodia, protección del PANI, o registro civil?",
-                    "¿Qué necesita resolver con respecto a su hijo/a?"
-                ],
-                "categories": ["pension_alimentaria", "menores", "civil"]
-            },
-            "despido": {
-                "contexts": ["con causa", "sin causa", "embarazo", "discriminación"],
-                "questions": [
-                    "¿Lo despidieron con preaviso o sin preaviso?",
-                    "¿Le dieron razones? ¿Considera que fue injusto o discriminatorio?"
-                ],
-                "categories": ["laboral"]
-            },
-            "desalojo": {
-                "contexts": ["inquilino", "propietario", "falta de pago", "vencimiento"],
-                "questions": [
-                    "¿Usted es el inquilino o el propietario?",
-                    "¿Cuál es la razón del desalojo? (falta de pago, fin de contrato, otra)"
-                ],
-                "categories": ["civil"]
-            }
+            "acoso": {"categories": ["laboral", "violencia", "penal", "menores"]},
+            "denuncia": {"categories": ["penal", "violencia", "laboral", "civil"]},
+            "pensión": {"categories": ["pension_alimentaria", "pension_vejez"]},
+            "demanda": {"categories": ["laboral", "civil", "pension_alimentaria"]},
+            "hijo": {"categories": ["pension_alimentaria", "menores", "civil"]},
+            "despido": {"categories": ["laboral"]},
+            "desalojo": {"categories": ["civil"]}
         }
 
         # Detectar términos ambiguos en la pregunta
@@ -703,7 +650,7 @@ class JudicialBot:
             if term in question_lower:
                 detected_ambiguities.append({
                     "term": term,
-                    "questions": config["questions"],
+                    "questions": [],  # Sin preguntas hardcodeadas - se aprenden del entrenamiento
                     "categories": config["categories"]
                 })
                 possible_categories.update(config["categories"])
@@ -1059,99 +1006,40 @@ class JudicialBot:
             # 1. Detectar saludos y consultas simples
             question_lower = question.lower().strip()
 
-            # Saludos simples
-            if question_lower in ["hola", "buenos días", "buenas tardes", "buenas noches", "hey", "holi", "ola"]:
-                response = {
-                    "answer": """¡Hola! 👋 Soy Chat FJ, del Servicio Nacional de Facilitadoras y Facilitadores Judiciales de Costa Rica.
-
-Estoy aquí para ayudarte con:
-• Pensiones alimentarias
-• Conciliaciones
-• Problemas laborales
-• Consultas legales
-• Trámites judiciales
-• Y mucho más
-
-¿En qué te puedo ayudar hoy? Contame tu situación.""",
-                    "sources": [],
-                    "processing_time": time.time() - start_time,
-                    "cached": False
-                }
-                self.cache.set(question, response)
-                return response
-
-            # Despedidas
-            if any(word in question_lower for word in ["adiós", "adios", "chao", "hasta luego", "gracias", "bye"]):
-                response = {
-                    "answer": """¡Con mucho gusto! 😊
-
-Si necesitás más ayuda en el futuro, no dudes en volver. Estamos aquí para ayudarte.
-
-¡Que tengas un excelente día! 🌟""",
-                    "sources": [],
-                    "processing_time": time.time() - start_time,
-                    "cached": False
-                }
-                self.cache.set(question, response)
-                return response
-
-            # Preguntas sobre el bot
-            if any(phrase in question_lower for phrase in ["quién sos", "quien sos", "qué sos", "que sos", "qué haces", "que haces", "para qué sirves", "para que sirves"]):
-                response = {
-                    "answer": """Soy Chat FJ, un asistente virtual del Servicio Nacional de Facilitadoras y Facilitadores Judiciales de Costa Rica. 🇨🇷
-
-Mi función es:
-✅ Orientarte en temas legales y judiciales
-✅ Ayudarte a resolver problemas de forma práctica
-✅ Darte información sobre:
-   • Pensiones alimentarias
-   • Conciliaciones
-   • Derechos laborales
-   • Trámites judiciales
-   • Defensa Pública
-   • Y mucho más
-
-💡 **Importante:** Te doy orientación, pero siempre verifica la información con fuentes oficiales.
-
-¿En qué te puedo ayudar específicamente?""",
-                    "sources": [],
-                    "processing_time": time.time() - start_time,
-                    "cached": False
-                }
-                self.cache.set(question, response)
-                return response
-
-            # 2. Verificar cache
-            cached_response = self.cache.get(question)
-            if cached_response:
-                cached_response['processing_time'] = time.time() - start_time
-                return cached_response
+            # NOTA: Saludos, despedidas y preguntas sobre el bot se aprenden desde el modo entrenamiento
+            # Las respuestas hardcodeadas fueron eliminadas para que el sistema aprenda de correcciones reales
 
             # ============================================
-            # PASO 0: DETECTAR AMBIGÜEDAD
+            # PASO 0: VERIFICAR CORRECCIONES APRENDIDAS (NUEVO - Aprendizaje en tiempo real)
             # ============================================
-            ambiguity_check = self.detect_ambiguity(question)
+            # IMPORTANTE: Las correcciones NO se retornan directamente
+            # Se usan como CONTEXTO DE APRENDIZAJE para que la IA genere respuestas basadas en ejemplos
+            learned_correction = training_db.get_learned_correction(question)
+            learned_context = None
 
-            if ambiguity_check["is_ambiguous"]:
-                logger.info(f"⚠️ Pregunta ambigua detectada: {ambiguity_check['detected_terms']}")
+            if learned_correction:
+                similarity = learned_correction.get('similarity_score', 1.0)
+                logger.info(f"🎓 Corrección aprendida encontrada: ID={learned_correction['id']}, Similitud={similarity:.3f}, Usado {learned_correction['times_used']} veces")
 
-                # Generar respuesta con preguntas aclaratorias
-                clarifying_text = "Para poder ayudarte mejor, necesito que me des más detalles:\n\n"
-                for i, q in enumerate(ambiguity_check["clarifying_questions"], 1):
-                    clarifying_text += f"{i}. {q}\n"
-
-                clarifying_text += "\n💡 **Tip:** Mientras más detalles me des sobre tu situación, mejor podré orientarte con la información legal correcta."
-
-                response = {
-                    "answer": clarifying_text,
-                    "sources": [],
-                    "processing_time": time.time() - start_time,
-                    "cached": False,
-                    "is_clarification": True,
-                    "ambiguity_info": ambiguity_check
+                # Preparar contexto de aprendizaje (NO retornar directamente)
+                learned_context = {
+                    "id": learned_correction['id'],
+                    "question_text": learned_correction['question_text'],
+                    "corrected_answer": learned_correction['corrected_answer'],
+                    "correction_type": learned_correction['correction_type'],
+                    "similarity_score": similarity,
+                    "category": learned_correction.get('category', 'general')
                 }
-                # NO cachear preguntas ambiguas
-                return response
+
+                logger.info(f"📚 Corrección se usará como EJEMPLO DE APRENDIZAJE, no como respuesta hardcodeada")
+
+            # ============================================
+            # PASO 0.5: DETECCIÓN DE AMBIGÜEDAD DESHABILITADA
+            # ============================================
+            # NOTA: Sistema deshabilitado - la IA debe responder directamente
+            # incluso con preguntas cortas o aparentemente ambiguas.
+            # Si necesita más detalles, lo puede preguntar al final de su respuesta.
+            logger.info(f"ℹ️ Detección de ambigüedad deshabilitada - respondiendo directamente")
 
             # ============================================
             # NUEVO FLUJO HÍBRIDO
@@ -1180,8 +1068,21 @@ Mi función es:
 
             # PASO 2: Buscar en base vectorial con scoring
             # Optimización: Reducido k de 4 a 3 para mejorar velocidad (2025-10-24)
-            relevant_docs = await self.search_documents_async(question, k=3)
-            reranked_docs_with_scores = self.rerank_documents(question, relevant_docs, top_k=2, return_scores=True)
+            
+            # Si es conversación continua y pregunta corta, usar contexto para búsqueda
+            search_query = question
+            if history and len(history) > 0 and len(question.split()) < 5:
+                # Pregunta corta en conversación -> probablemente es clarificación
+                # Usar últimas preguntas del usuario para contexto de búsqueda
+                user_questions = [msg['content'] for msg in history if msg['role'] == 'user']
+                if user_questions:
+                    last_user_question = user_questions[-1]
+                    # Combinar última pregunta real con la actual
+                    search_query = f"{last_user_question} {question}"
+                    logger.info(f"🔍 Búsqueda contextualizada: '{question}' -> '{search_query}'")
+            
+            relevant_docs = await self.search_documents_async(search_query, k=3)
+            reranked_docs_with_scores = self.rerank_documents(search_query, relevant_docs, top_k=2, return_scores=True)
 
             # Extraer documentos, scores y categoría detectada
             detected_category = "general"
@@ -1268,86 +1169,222 @@ Mi función es:
 
             # PASO 4: Generar respuesta BREVE con contexto híbrido
             is_follow_up = history and len(history) > 0
+            logger.info(f"📝 Historial: {len(history) if history else 0} mensajes | is_follow_up: {is_follow_up}")
 
             # Crear lista de referencias
             refs_list = ", ".join([
                 f"[{i}]" for i in range(1, len(sources) + 1)
             ])
 
-            prompt = f"""🧠 ROL:
-Eres un asistente jurídico especializado en Facilitadores Judiciales de Costa Rica.
-Explicas temas legales en lenguaje simple, correcto y empático, orientado al ciudadano común.
+            # Construir contexto de aprendizaje si hay correcciones
+            learning_context = ""
+            if learned_context:
+                logger.info(f"🎓 Inyectando corrección aprendida en prompt como EJEMPLO DE APRENDIZAJE")
+                learning_context = f"""
+🎓 EJEMPLO DE RESPUESTA CORRECTA (ALTA PRIORIDAD):
+Esta pregunta es MUY SIMILAR a una que ya se respondió correctamente antes.
+Usá esta respuesta como MODELO PRINCIPAL - es exactamente el estilo, tono y nivel de detalle que deberías seguir.
 
-🔴 REGLAS CRÍTICAS DE CITAS LEGALES (NO VIOLAR):
+📝 Pregunta similar que se hizo antes:
+"{learned_context['question_text']}"
 
-1. VIOLENCIA DOMÉSTICA → Ley N.° 7586 (NUNCA Ley 7654)
-2. MENORES / PANI → Ley N.° 7739 Código de Niñez (NUNCA Ley 7654)
-3. PENSIONES ALIMENTARIAS → Ley N.° 7654 (SOLO para pensiones)
-4. CIVIL / DESALOJOS → Ley de Arrendamientos + Código Civil
-5. LABORAL → Código de Trabajo (NUNCA Ley 7654)
+✅ Respuesta que funcionó muy bien (SEGUÍ ESTE ESTILO):
+{learned_context['corrected_answer']}
 
-⚠️ SI VES "VIOLENCIA" O "AGRESIÓN" → Ley 7586 (no 7654)
-⚠️ SI VES "PANI" O "HIJO EN PELIGRO" → Ley 7739 (no 7654)
-⚠️ NO INVENTAR artículos que no estén en el contexto
+⚡ IMPORTANTE - Instrucciones de cómo usar este ejemplo:
+• Este es el MEJOR EJEMPLO de cómo responder este tipo de pregunta
+• COPIÁ el ESTILO conversacional, el uso de emojis, y el tono cercano
+• SEGUÍ la ESTRUCTURA: cómo introduce el tema, cómo explica los pasos, cómo cierra
+• MANTENÉ el mismo NIVEL DE DETALLE (ni más formal, ni más técnico)
+• Si la pregunta es casi idéntica, tu respuesta debe ser muy similar
+• Si la pregunta varía un poco, ADAPTÁ el contenido pero mantené el mismo estilo
+• Este ejemplo tiene PRIORIDAD sobre el contexto de las fuentes legales
+• Categoría: {learned_context['category']} | Tipo: {learned_context['correction_type']}
+• Similitud con pregunta actual: {learned_context['similarity_score']:.1%}
 
-🧩 COMPORTAMIENTO:
-• Usa tono empático, claro y educativo
-• Cita SIEMPRE la ley correcta según la categoría
-• NUNCA confundas funciones: los juzgados dictan medidas, la Dirección General de Adaptación Social SOLO ejecuta apremios corporales
-• Si la consulta no tiene relación con Costa Rica, aclara amablemente que tu ámbito es el sistema jurídico costarricense
-• Devuelve siempre una respuesta breve, precisa y con orientación práctica
-• Usa SOLO estas referencias disponibles: {refs_list}
+"""
 
-⚖️ INSTANCIAS Y SUS FUNCIONES (NO CONFUNDIR):
+            # Construir contexto conversacional si existe historial
+            conversation_context = ""
+            if is_follow_up:
+                logger.info(f"💬 Conversación continua detectada: {len(history)} mensajes previos")
 
-VIOLENCIA DOMÉSTICA:
-• Juzgado de Violencia Doméstica (adscrito al Juzgado de Familia)
-• OIJ (Organismo de Investigación Judicial)
-• Fiscalía
-• Facilitadores Judiciales
-❌ NO: Juzgado de Pensiones Alimentarias
+                # Tomar últimos 4 mensajes (2 intercambios completos) con contenido completo
+                recent_history = history[-4:] if len(history) > 4 else history
 
-MENORES / PANI:
-• PANI: Tel 1147 (línea gratuita 24/7)
-• Juzgado de Familia
-• Facilitadores Judiciales
-❌ NO: Juzgado de Pensiones (solo si hay pensión involucrada)
+                # Detectar si es una pregunta de clarificación/seguimiento
+                user_last_message = question.lower().strip()
+                is_clarification = any(keyword in user_last_message for keyword in [
+                    'sí', 'si', 'como', 'cómo', 'explica', 'explicá', 'detalle', 'más',
+                    'dime', 'cuéntame', 'y eso', 'qué es', 'que es', 'continua', 'continuá',
+                    'sigue', 'seguí', 'entonces', 'ok', 'vale', 'entiendo'
+                ])
 
-PENSIONES ALIMENTARIAS:
-• Juzgado de Pensiones Alimentarias
-• Juzgado de Familia
-• Facilitadores Judiciales
-❌ NO: Dirección General de Adaptación Social (solo ejecuta, no recibe)
+                conversation_context = "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                conversation_context += "💬 CONTEXTO DE CONVERSACIÓN CONTINUA\n"
+                conversation_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-LABORAL:
-• Ministerio de Trabajo: Tel 800-MTSS (800-6877)
-• Juzgado de Trabajo
-• Facilitadores Judiciales
-❌ NO: Juzgado de Pensiones
+                if is_clarification:
+                    conversation_context += "⚠️ ⚠️ ⚠️ TIPO DE MENSAJE: PREGUNTA DE SEGUIMIENTO/CLARIFICACIÓN ⚠️ ⚠️ ⚠️\n\n"
+                    conversation_context += "🚨 INSTRUCCIÓN CRÍTICA MÁXIMA PRIORIDAD:\n"
+                    conversation_context += "El usuario/a está pidiendo que PROFUNDICES en algo que YA MENCIONASTE en tu respuesta anterior.\n"
+                    conversation_context += "Esta NO es una pregunta nueva. Es una ACLARACIÓN de tu respuesta previa.\n\n"
+                    conversation_context += "🚫 🚫 🚫 PROHIBICIONES ABSOLUTAS:\n"
+                    conversation_context += "• NO uses información de las 'FUENTES LEGALES' de abajo\n"
+                    conversation_context += "• NO cambies de tema\n"
+                    conversation_context += "• NO repitas toda la información anterior\n"
+                    conversation_context += "• NO empieces desde cero\n\n"
+                    conversation_context += "✅ ✅ ✅ OBLIGACIONES:\n"
+                    conversation_context += "• BASA tu respuesta EXCLUSIVAMENTE en el HISTORIAL DE LA CONVERSACIÓN de abajo\n"
+                    conversation_context += "• Identifica QUÉ TEMA ESPECÍFICO de tu respuesta anterior está preguntando\n"
+                    conversation_context += "• Profundiza SOLO en ese aspecto concreto\n"
+                    conversation_context += "• Usa frases como: 'Dale, sobre ese punto...', 'Perfecto, te explico...', 'Claro, mirá...'\n"
+                    conversation_context += "• Sé MUCHO más específico y detallado que en tu respuesta anterior\n\n"
+                else:
+                    conversation_context += "ℹ️ TIPO DE MENSAJE: NUEVA CONSULTA EN CONVERSACIÓN EXISTENTE\n"
+                    conversation_context += "El usuario/a hace una pregunta nueva pero mantén coherencia con lo anterior.\n\n"
 
-📚 FUENTES LEGALES DISPONIBLES:
+                conversation_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                conversation_context += "📚 HISTORIAL COMPLETO DE LA CONVERSACIÓN:\n"
+                conversation_context += "(Lee todo el contexto - ESTA ES TU FUENTE PRINCIPAL)\n"
+                conversation_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+                for i, msg in enumerate(recent_history, 1):
+                    role_label = "👤 Usuario/a" if msg['role'] == 'user' else "⚖️ Tu respuesta anterior"
+                    # NO truncar - incluir contenido completo para mejor contexto
+                    conversation_context += f"{'─' * 60}\n"
+                    conversation_context += f"{role_label} (Mensaje {i}):\n"
+                    conversation_context += f"{msg['content']}\n"
+
+                conversation_context += f"{'─' * 60}\n\n"
+
+                conversation_context += "🎯 INSTRUCCIONES CRÍTICAS DE CONTINUIDAD:\n\n"
+
+                if is_clarification:
+                    conversation_context += "📌 ESTA ES UNA PREGUNTA DE CLARIFICACIÓN:\n"
+                    conversation_context += "1. ❌ NO repitas los pasos o información que ya diste en tu respuesta anterior\n"
+                    conversation_context += "2. ❌ NO empieces desde cero explicando todo de nuevo\n"
+                    conversation_context += "3. ✅ SÍ identifica QUÉ ESPECÍFICAMENTE está preguntando el usuario/a\n"
+                    conversation_context += "4. ✅ SÍ profundiza SOLO en ese punto concreto con más detalles\n"
+                    conversation_context += "5. ✅ SÍ usa frases como: 'Perfecto, te explico ese punto...', 'Dale, sobre eso...', 'Claro, mirá...'\n"
+                    conversation_context += "6. ✅ SÍ asume que el usuario/a ya leyó y entendió lo anterior\n"
+                    conversation_context += "7. ✅ SÍ sé más específico y práctico, con ejemplos concretos si es posible\n\n"
+                    conversation_context += "🔍 ANÁLISIS REQUERIDO:\n"
+                    conversation_context += "Antes de responder, identifica:\n"
+                    conversation_context += "• ¿Sobre qué TEMA ESPECÍFICO de tu respuesta anterior está preguntando?\n"
+                    conversation_context += "• ¿Qué DETALLE o PASO necesita que amplíes?\n"
+                    conversation_context += "• ¿Qué NO necesitas repetir porque ya lo dijiste?\n\n"
+                else:
+                    conversation_context += "1. ✅ Mantén coherencia con toda la conversación previa\n"
+                    conversation_context += "2. ✅ Reconoce cualquier información que el usuario/a ya te dio\n"
+                    conversation_context += "3. ✅ NO pidas datos que el usuario/a ya mencionó\n"
+                    conversation_context += "4. ✅ Haz referencias naturales: 'Como te mencioné...', 'Siguiendo con lo que hablamos...'\n"
+                    conversation_context += "5. ✅ Si cambia de tema, hazlo natural: 'Perfecto, ahora sobre tu nueva consulta...'\n\n"
+
+                conversation_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            # Detectar si es clarificación para reordenar el prompt
+            is_clarification_detected = is_follow_up and any(keyword in question.lower().strip() for keyword in [
+                'sí', 'si', 'como', 'cómo', 'explica', 'explicá', 'detalle', 'más',
+                'dime', 'cuéntame', 'y eso', 'qué es', 'que es', 'continua', 'continuá',
+                'sigue', 'seguí', 'entonces', 'ok', 'vale', 'entiendo'
+            ])
+
+            # Para clarificaciones: SOLO contexto conversacional (NO usar fuentes legales)
+            # Para preguntas normales: orden estándar
+            if is_clarification_detected:
+                logger.info("🎯 CLARIFICACIÓN DETECTADA - Usando SOLO historial conversacional")
+                sources_section = ""  # NO incluir fuentes legales en clarificaciones
+                context_section = conversation_context
+            else:
+                sources_section = f"""
+📚 FUENTES LEGALES Y CONTEXTO:
+Estas fuentes contienen información oficial verificada del sistema jurídico costarricense.
+Basa tu respuesta en este contexto. NO inventes información.
+
 {hybrid_context}
+
+"""
+                context_section = conversation_context if conversation_context else ""
+
+            prompt = f"""🧠 ROL Y PERSONALIDAD:
+Sos un asistente jurídico especializado en Facilitadores Judiciales de Costa Rica, hablando con lenguaje claro, cercano y conversacional.
+Explicás temas legales como si estuvieras conversando frente a frente con alguien que necesita ayuda ☕.
+Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda concreta, no un manual de derecho.
+
+🇨🇷 ÁMBITO GEOGRÁFICO Y LEGAL (CRÍTICO - MÁXIMA PRIORIDAD):
+• Este sistema es EXCLUSIVAMENTE para COSTA RICA 🇨🇷
+• SOLO mencioná instituciones, leyes, y procedimientos de COSTA RICA
+• Si no tenés información específica de Costa Rica, decilo claramente
+• NUNCA inventes o asumas que leyes de otros países aplican en Costa Rica
+• EJEMPLOS DE INSTITUCIONES COSTARRICENSES VÁLIDAS:
+  ✅ Juzgados de Costa Rica (Violencia Doméstica, Familia, Trabajo, etc.)
+  ✅ Ministerio de Trabajo y Seguridad Social (MTSS)
+  ✅ Instituto Nacional de las Mujeres (INAMU)
+  ✅ Poder Judicial de Costa Rica
+  ✅ Caja Costarricense de Seguro Social (CCSS)
+  ✅ Defensoría de los Habitantes
+  ✅ Defensa Pública
+• ❌ NO menciones instituciones de otros países (México, España, Argentina, etc.)
+• ❌ NO cites leyes que no sean de Costa Rica
+• Si la base de conocimiento no tiene información específica de Costa Rica sobre el tema, decilo honestamente
+
+🌈 LENGUAJE INCLUSIVO (OBLIGATORIO):
+• SIEMPRE usa lenguaje inclusivo: "juez o jueza", "trabajador o trabajadora", "el usuario o la usuaria"
+• Alterna formas inclusivas naturalmente: "persona trabajadora", "persona profesional en derecho"
+• NUNCA uses solo masculino como genérico
+{learning_context}{sources_section}{context_section}
+🎯 ESTILO DE RESPUESTA (MUY IMPORTANTE):
+• Hablá de forma natural y conversacional - usá "vos", "podés", "te explico"
+• Sé DIRECTO y CONCISO - máximo 350-400 palabras por respuesta
+• El usuario quiere saber QUÉ HACER, no teoría jurídica extensa
+• Usá emojis relevantes para hacer el texto más amigable (⚖️ 📩 💡 ✅ ⏳ etc.)
+• Dividí la información en 3-5 pasos principales, no más
+• Explicá paso a paso lo que debe hacer la persona, pero sin exceso de detalles
+• Priorizá información PRÁCTICA sobre tecnicismos legales
+• Si mencionás leyes, hacelo de forma simple e integrada en el texto natural
+• Usá viñetas o listas numeradas para que sea fácil de leer
+• Terminá ofreciendo ayuda adicional: "¿Querés que te explique más sobre...?"
+
+📝 FORMATO DE TEXTO (CRÍTICO - SEGUIR SIEMPRE):
+• Para títulos principales: ## Título (solo al inicio)
+• Para subtítulos dentro del texto: **Subtítulo en negrita:**
+• EJEMPLOS CORRECTOS:
+  ✅ **Qué necesitás presentar:**
+  ✅ **Pasos prácticos:**
+  ✅ **Dónde acudir:**
+• EJEMPLOS INCORRECTOS (NUNCA USAR):
+  ❌ ### Pasos prácticos
+  ❌ #### Qué necesitás
+• NUNCA uses ### o #### - se ven MAL en la interfaz
+• NO uses separadores como "---" o "___"
+• Usá saltos de línea vacíos para separar secciones
+• Las listas numeradas (1️⃣ 2️⃣) y viñetas (•) funcionan perfecto
+
+🚫 EVITÁ (CRÍTICO):
+• Respuestas largas y formales (máximo 400-500 palabras)
+• Estructura rígida de "procedimiento", "dónde acudir", "base legal"
+• Exceso de tecnicismos o referencias legales
+• Tono impersonal o distante
+• Separadores horizontales "---" (se ven mal)
+• Encabezados con ### o #### (usar **negrita:** en su lugar)
+• NO agregues sección de "Referencias:" al final
+• NO listes fuentes numeradas como "[1] Documento legal" al final
+• NO agregues notas como "⚠️ Nota: Recomendamos verificar..." al final
+• La respuesta debe terminar con tu último consejo o pregunta de seguimiento
+
+✅ HACÉ:
+• Empatizá con la situación de la persona
+• Explicá los pasos concretos que debe seguir
+• Mencioná instituciones específicas donde puede ir
+• Agregá consejos prácticos basados en el contexto
+• Si necesitás mencionar una fuente legal, integrala naturalmente en el texto
+• Mantené la conversación natural y fluida
+• Terminá con algo útil para el usuario, NO con referencias o notas
 
 ❓ PREGUNTA DEL USUARIO: {question}
 
-✍️ FORMATO DE RESPUESTA ESPERADO:
-
-1. **Explicación breve del procedimiento** (2-3 líneas)
-   - Qué puede hacer el usuario
-   - Cuál es el proceso legal
-
-2. **Dónde acudir** (1-2 líneas)
-   - Institución específica y correcta según las reglas arriba
-   - Departamento o juzgado correcto
-
-3. **Cita legal** (1 línea)
-   - Ley específica correcta según la categoría
-   - Solo citar artículos si están en el contexto
-   - Usar referencias: [1], [2], etc.
-
-4. **Recomendación práctica** (1 línea)
-   - Facilitador Judicial local
-   - Orientación gratuita disponible
+💬 RESPONDÉ como si estuvieras hablando con un amigo o amiga que necesita orientación legal. Sé claro, práctico y cercano.
 
 RESPUESTA:"""
 
@@ -1370,20 +1407,13 @@ RESPUESTA:"""
                     logger.error(f"   • {error}")
                 for correction in category_validation["corrections"]:
                     logger.info(f"   💡 {correction}")
-                # Agregar nota de advertencia al final de la respuesta
-                answer += "\n\n⚠️ Nota: Recomendamos verificar esta información con un Facilitador Judicial."
+                # NO agregar nota al final - el prompt ya indica que la IA debe ser conversacional
             else:
                 if category_validation["cited_laws"]:
                     logger.info(f"✅ Citas correctas para categoría {detected_category}: {category_validation['cited_laws']}")
 
-            # PASO 5: Formatear respuesta final con referencias
-            final_answer = answer + "\n\n---\n\n**Referencias:**\n"
-
-            for i, src in enumerate(sources, 1):
-                if src["type"] == "web":
-                    final_answer += f"[{i}] {src['title']} - {src['url']}\n"
-                else:
-                    final_answer += f"[{i}] {src['filename']} (Documento legal)\n"
+            # PASO 5: Respuesta final sin referencias adicionales
+            final_answer = answer
 
             response = {
                 "answer": final_answer,
@@ -1391,6 +1421,17 @@ RESPUESTA:"""
                 "processing_time": time.time() - start_time,
                 "cached": False
             }
+
+            # Si se usó corrección aprendida, agregar metadata y marcar como usada
+            if learned_context:
+                response["learned_from_feedback"] = True
+                response["correction_type"] = learned_context['correction_type']
+                response["similarity_score"] = learned_context['similarity_score']
+                response["matched_question"] = learned_context['question_text']
+
+                # Marcar que se usó la corrección
+                training_db.mark_correction_used(learned_context['id'])
+                logger.info(f"📊 Corrección {learned_context['id']} marcada como usada (similitud: {learned_context['similarity_score']:.1%})")
 
             self.cache.set(question, response)
             logger.info(f"✅ Respuesta híbrida generada en {response['processing_time']:.3f}s")
@@ -1510,8 +1551,8 @@ async def get_stats():
     """Estadísticas del sistema."""
     return {
         "cache_stats": bot.cache.stats(),
-        "precomputed_responses": len(bot.precomputed.responses),
         "system_status": "optimal"
+        # NOTA: precomputed_responses eliminado - el sistema aprende desde modo entrenamiento
     }
 
 @app.get("/documents")
@@ -1563,7 +1604,7 @@ async def clear_cache():
 # ENDPOINTS DE MODO ENTRENAMIENTO
 # ============================================
 
-from training_db import TrainingDatabase
+from src.training_db import TrainingDatabase
 from pydantic import BaseModel
 
 # Instancia global de base de datos de entrenamiento
@@ -1741,6 +1782,447 @@ async def update_evaluation(evaluation_id: int, status: str, notes: str = ""):
         }
     except Exception as e:
         logger.error(f"❌ Error actualizando evaluación: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# ENDPOINTS PARA APRENDIZAJE EN TIEMPO REAL
+# ============================================
+
+class CorrectionRequest(BaseModel):
+    """Modelo para guardar una corrección aprendida."""
+    question: str
+    original_answer: str
+    corrected_answer: str
+    correction_type: str  # "citation", "category", "content", "format"
+    category: str = "general"
+
+
+@app.post("/training/learn-correction")
+async def learn_correction(request: CorrectionRequest):
+    """
+    Guarda una corrección que se aplicará inmediatamente en futuras consultas idénticas.
+    APRENDIZAJE EN TIEMPO REAL.
+    """
+    try:
+        correction_id = training_db.save_learned_correction(
+            question=request.question,
+            original_answer=request.original_answer,
+            corrected_answer=request.corrected_answer,
+            correction_type=request.correction_type,
+            category=request.category
+        )
+
+        logger.info(f"🎓 APRENDIZAJE EN TIEMPO REAL: Corrección guardada ID={correction_id}")
+
+        return {
+            "success": True,
+            "correction_id": correction_id,
+            "message": "Corrección guardada. Se aplicará inmediatamente en futuras consultas.",
+            "learned_from": request.question[:50] + "..."
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error guardando corrección: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/training/corrections")
+async def get_corrections(category: Optional[str] = None, limit: int = 100):
+    """Obtiene todas las correcciones aprendidas."""
+    try:
+        corrections = training_db.get_all_corrections(category=category, limit=limit)
+
+        return {
+            "success": True,
+            "corrections": corrections,
+            "count": len(corrections),
+            "category_filter": category or "all"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo correcciones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/training/correction-stats")
+async def get_correction_stats():
+    """Obtiene estadísticas de las correcciones aprendidas."""
+    try:
+        all_corrections = training_db.get_all_corrections(limit=1000)
+
+        total_corrections = len(all_corrections)
+        total_uses = sum(c["times_used"] for c in all_corrections)
+
+        # Agrupar por categoría
+        by_category = {}
+        for correction in all_corrections:
+            cat = correction["category"]
+            if cat not in by_category:
+                by_category[cat] = {"count": 0, "uses": 0}
+            by_category[cat]["count"] += 1
+            by_category[cat]["uses"] += correction["times_used"]
+
+        # Agrupar por tipo de corrección
+        by_type = {}
+        for correction in all_corrections:
+            ctype = correction["correction_type"]
+            if ctype not in by_type:
+                by_type[ctype] = {"count": 0, "uses": 0}
+            by_type[ctype]["count"] += 1
+            by_type[ctype]["uses"] += correction["times_used"]
+
+        # Top 10 correcciones más usadas
+        top_used = sorted(all_corrections, key=lambda x: x["times_used"], reverse=True)[:10]
+
+        return {
+            "success": True,
+            "statistics": {
+                "total_corrections": total_corrections,
+                "total_times_used": total_uses,
+                "by_category": by_category,
+                "by_type": by_type,
+                "top_used_corrections": [
+                    {
+                        "question": c["question_text"][:100],
+                        "times_used": c["times_used"],
+                        "category": c["category"],
+                        "type": c["correction_type"]
+                    }
+                    for c in top_used
+                ]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo estadísticas de correcciones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# ENDPOINT PARA SUBIR DOCUMENTOS A CHROMADB
+# ============================================
+
+from fastapi import UploadFile, File
+import PyPDF2
+import io
+
+@app.post("/training/upload-document")
+async def upload_document(file: UploadFile = File(...), category: str = "general"):
+    """
+    Sube un documento (PDF o TXT) y lo agrega a la base vectorial ChromaDB.
+    SOLO accesible desde modo entrenamiento.
+    """
+    try:
+        # Validar tipo de archivo
+        allowed_extensions = ['.pdf', '.txt', '.md']
+        file_ext = os.path.splitext(file.filename)[1].lower()
+
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo de archivo no soportado. Use: {', '.join(allowed_extensions)}"
+            )
+
+        # Leer contenido del archivo
+        content_bytes = await file.read()
+
+        # Extraer texto según tipo de archivo
+        if file_ext == '.pdf':
+            # Procesar PDF
+            pdf_file = io.BytesIO(content_bytes)
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+            text_content = ""
+            for page_num, page in enumerate(pdf_reader.pages):
+                page_text = page.extract_text()
+                text_content += f"\n--- Página {page_num + 1} ---\n{page_text}"
+
+        elif file_ext in ['.txt', '.md']:
+            # Procesar texto plano
+            text_content = content_bytes.decode('utf-8', errors='ignore')
+
+        # Validar que se extrajo contenido
+        if not text_content or len(text_content.strip()) < 50:
+            raise HTTPException(
+                status_code=400,
+                detail="El documento no contiene suficiente texto válido"
+            )
+
+        # Dividir en chunks para vectorización
+        chunk_size = 1000
+        overlap = 200
+        chunks = []
+
+        for i in range(0, len(text_content), chunk_size - overlap):
+            chunk = text_content[i:i + chunk_size]
+            if len(chunk.strip()) > 100:  # Solo chunks con contenido significativo
+                chunks.append(chunk)
+
+        logger.info(f"📄 Documento procesado: {file.filename} - {len(chunks)} chunks")
+
+        # Crear documentos de LangChain
+        from langchain_core.documents import Document
+
+        documents = []
+        for idx, chunk in enumerate(chunks):
+            doc = Document(
+                page_content=chunk,
+                metadata={
+                    "source": f"uploaded/{file.filename}",
+                    "filename": file.filename,
+                    "category": category,
+                    "chunk_index": idx,
+                    "total_chunks": len(chunks),
+                    "upload_date": datetime.now().isoformat()
+                }
+            )
+            documents.append(doc)
+
+        # Agregar a ChromaDB de forma asíncrona
+        loop = asyncio.get_event_loop()
+
+        def add_to_vectordb():
+            if bot.vectordb:
+                bot.vectordb.add_documents(documents)
+                return True
+            return False
+
+        success = await loop.run_in_executor(bot.executor, add_to_vectordb)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Base de datos vectorial no disponible"
+            )
+
+        # Obtener nuevo conteo de documentos
+        new_count = await loop.run_in_executor(
+            bot.executor,
+            lambda: bot.vectordb._collection.count()
+        )
+
+        logger.info(f"✅ Documento agregado a ChromaDB: {file.filename} ({len(chunks)} chunks)")
+
+        return {
+            "success": True,
+            "message": f"Documento '{file.filename}' agregado exitosamente",
+            "filename": file.filename,
+            "chunks_added": len(chunks),
+            "category": category,
+            "total_documents_in_db": new_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error procesando documento: {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando documento: {str(e)}")
+
+
+@app.get("/training/document-stats")
+async def get_document_stats():
+    """Obtiene estadísticas de documentos en ChromaDB."""
+    try:
+        if not bot.vectordb:
+            return {
+                "success": False,
+                "message": "Base de datos vectorial no disponible"
+            }
+
+        loop = asyncio.get_event_loop()
+
+        # Obtener conteo total
+        total_docs = await loop.run_in_executor(
+            bot.executor,
+            lambda: bot.vectordb._collection.count()
+        )
+
+        # Obtener TODOS los documentos (incluyendo los importados originalmente)
+        def get_all_docs():
+            try:
+                # Obtener documentos con IDs y contenido
+                results = bot.vectordb._collection.get(
+                    limit=10000,  # Límite aumentado para obtener todos los chunks
+                    include=["metadatas", "documents"]
+                )
+                return results
+            except Exception as e:
+                logger.error(f"Error obteniendo documentos: {e}")
+                return None
+
+        all_results = await loop.run_in_executor(bot.executor, get_all_docs)
+
+        all_files = {}
+        
+        logger.info(f"🔍 DEBUG: all_results type: {type(all_results)}")
+        logger.info(f"🔍 DEBUG: all_results keys: {all_results.keys() if all_results else 'None'}")
+        
+        if all_results:
+            ids = all_results.get('ids', [])
+            documents = all_results.get('documents', [])
+            metadatas = all_results.get('metadatas', [])
+            
+            logger.info(f"📊 Procesando {len(ids)} chunks de documentos")
+            
+            for i in range(len(ids)):
+                doc_id = ids[i] if i < len(ids) else f'doc_{i}'
+                doc_content = documents[i] if i < len(documents) else ''
+                metadata = metadatas[i] if i < len(metadatas) else None
+                
+                # Intentar obtener el nombre del archivo de diferentes campos
+                filename = None
+                
+                if metadata:
+                    filename = (
+                        metadata.get('filename') or 
+                        metadata.get('source', '').split('/')[-1] or 
+                        metadata.get('title')
+                    )
+                
+                # Si no hay filename en metadata, agrupar por patrón de título en el contenido
+                if not filename:
+                    # Extraer título del contenido
+                    lines = doc_content.split('\n')[:3]  # Primeras 3 líneas
+                    title_line = ''
+                    for line in lines:
+                        clean_line = line.strip()
+                        if len(clean_line) > 10:  # Línea significativa
+                            title_line = clean_line[:80]
+                            break
+                    
+                    # Usar título como agrupador
+                    if title_line:
+                        filename = title_line
+                    else:
+                        filename = f"Documento {doc_id}"
+                
+                # Crear entrada para el archivo si no existe
+                if filename not in all_files:
+                    display_title = filename
+                    if len(filename) > 100:
+                        display_title = filename[:97] + '...'
+                    
+                    all_files[filename] = {
+                        "filename": filename,
+                        "display_name": display_title,
+                        "category": metadata.get('category', 'documentos_legales') if metadata else 'documentos_legales',
+                        "upload_date": 'Base de datos original',
+                        "chunks": 0,
+                        "source": metadata.get('source', filename) if metadata else filename
+                    }
+                
+                all_files[filename]["chunks"] += 1
+
+        logger.info(f"✅ Agrupados en {len(all_files)} archivos únicos")
+
+        return {
+            "success": True,
+            "total_documents": total_docs,
+            "uploaded_files": list(all_files.values()),
+            "uploaded_files_count": len(all_files)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo estadísticas de documentos: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/training/document-content/{filename}")
+async def get_document_content(filename: str):
+    """Obtiene todos los chunks de un documento específico para revisión."""
+    try:
+        if not bot.vectordb:
+            return {
+                "success": False,
+                "message": "Base de datos vectorial no disponible"
+            }
+
+        loop = asyncio.get_event_loop()
+
+        def get_document_chunks():
+            try:
+                # Intentar buscar por filename primero
+                results = bot.vectordb._collection.get(
+                    where={"filename": filename},
+                    include=["documents", "metadatas"]
+                )
+                
+                # Si no encuentra nada, buscar por source que termine con el filename
+                if not results or not results.get('documents'):
+                    # Obtener todos y filtrar manualmente
+                    all_results = bot.vectordb._collection.get(
+                        limit=10000,
+                        include=["documents", "metadatas"]
+                    )
+                    
+                    filtered_docs = []
+                    filtered_metas = []
+                    filtered_ids = []
+                    
+                    if all_results and 'metadatas' in all_results:
+                        for i, meta in enumerate(all_results['metadatas']):
+                            if meta:
+                                doc_name = (
+                                    meta.get('filename') or 
+                                    meta.get('source', '').split('/')[-1]
+                                )
+                                if doc_name == filename or meta.get('source', '').endswith(filename):
+                                    filtered_docs.append(all_results['documents'][i])
+                                    filtered_metas.append(meta)
+                                    filtered_ids.append(all_results['ids'][i])
+                    
+                    results = {
+                        'documents': filtered_docs,
+                        'metadatas': filtered_metas,
+                        'ids': filtered_ids
+                    }
+                
+                return results
+            except Exception as e:
+                logger.error(f"Error obteniendo chunks: {e}")
+                return None
+
+        results = await loop.run_in_executor(bot.executor, get_document_chunks)
+
+        if not results or 'documents' not in results:
+            return {
+                "success": False,
+                "message": f"No se encontraron chunks para el documento: {filename}"
+            }
+
+        # Organizar chunks por índice
+        chunks_data = []
+        documents = results.get('documents', [])
+        metadatas = results.get('metadatas', [])
+        ids = results.get('ids', [])
+
+        for i, (doc, meta, doc_id) in enumerate(zip(documents, metadatas, ids)):
+            chunk_info = {
+                "id": doc_id,
+                "content": doc,
+                "chunk_index": meta.get('chunk_index', i),
+                "total_chunks": meta.get('total_chunks', len(documents)),
+                "category": meta.get('category', 'unknown'),
+                "upload_date": meta.get('upload_date', 'unknown'),
+                "source": meta.get('source', '')
+            }
+            chunks_data.append(chunk_info)
+
+        # Ordenar por índice de chunk
+        chunks_data.sort(key=lambda x: x['chunk_index'])
+
+        return {
+            "success": True,
+            "filename": filename,
+            "total_chunks": len(chunks_data),
+            "chunks": chunks_data,
+            "category": chunks_data[0]['category'] if chunks_data else 'unknown',
+            "upload_date": chunks_data[0]['upload_date'] if chunks_data else 'unknown'
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo estadísticas de documentos: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

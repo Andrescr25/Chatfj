@@ -70,6 +70,27 @@ class TrainingDatabase:
             )
         """)
 
+        # Tabla de correcciones aprendidas (NUEVA - Aprendizaje en tiempo real)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS learned_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question_hash TEXT NOT NULL,
+                question_text TEXT NOT NULL,
+                original_answer TEXT NOT NULL,
+                corrected_answer TEXT NOT NULL,
+                correction_type TEXT NOT NULL,
+                category TEXT,
+                times_used INTEGER DEFAULT 0,
+                success_rate REAL DEFAULT 100.0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_used TEXT
+            )
+        """)
+
+        # Índice para búsqueda rápida de correcciones por hash de pregunta
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_question_hash ON learned_corrections(question_hash)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON learned_corrections(category)")
+
         # Índices para búsquedas rápidas
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON evaluations(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON evaluations(timestamp)")
@@ -356,3 +377,242 @@ class TrainingDatabase:
         conn.commit()
         conn.close()
         logger.info(f"✅ Evaluación {evaluation_id} actualizada a: {status}")
+
+    # ============================================
+    # MÉTODOS PARA APRENDIZAJE EN TIEMPO REAL
+    # ============================================
+
+    def _hash_question(self, question: str) -> str:
+        """Genera un hash normalizado de la pregunta para matching."""
+        import hashlib
+        # Normalizar: lowercase, sin espacios extra, sin puntuación al final
+        normalized = question.lower().strip().rstrip('?¿!.,;:')
+        normalized = ' '.join(normalized.split())  # Eliminar espacios múltiples
+        return hashlib.md5(normalized.encode('utf-8')).hexdigest()
+
+    def save_learned_correction(
+        self,
+        question: str,
+        original_answer: str,
+        corrected_answer: str,
+        correction_type: str,
+        category: str = "general"
+    ) -> int:
+        """
+        Guarda una corrección aprendida para uso futuro inmediato.
+
+        Args:
+            question: Pregunta original del usuario
+            original_answer: Respuesta original (incorrecta)
+            corrected_answer: Respuesta corregida por el evaluador
+            correction_type: Tipo de corrección (citation, category, content, format)
+            category: Categoría de la pregunta
+
+        Returns:
+            ID de la corrección guardada
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        question_hash = self._hash_question(question)
+
+        # Verificar si ya existe una corrección para esta pregunta
+        cursor.execute("""
+            SELECT id FROM learned_corrections
+            WHERE question_hash = ?
+        """, (question_hash,))
+
+        existing = cursor.fetchone()
+
+        if existing:
+            # Actualizar corrección existente
+            cursor.execute("""
+                UPDATE learned_corrections
+                SET corrected_answer = ?,
+                    correction_type = ?,
+                    category = ?,
+                    created_at = ?
+                WHERE id = ?
+            """, (corrected_answer, correction_type, category, datetime.now().isoformat(), existing[0]))
+            correction_id = existing[0]
+            logger.info(f"🔄 Corrección actualizada: ID={correction_id}")
+        else:
+            # Insertar nueva corrección
+            cursor.execute("""
+                INSERT INTO learned_corrections
+                (question_hash, question_text, original_answer, corrected_answer, correction_type, category)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (question_hash, question, original_answer, corrected_answer, correction_type, category))
+            correction_id = cursor.lastrowid
+            logger.info(f"✅ Nueva corrección aprendida: ID={correction_id}, Category={category}")
+
+        conn.commit()
+        conn.close()
+
+        return correction_id
+
+    def get_learned_correction(self, question: str, similarity_threshold: float = 0.85) -> Optional[Dict[str, Any]]:
+        """
+        Busca una corrección aprendida para la pregunta dada usando búsqueda semántica.
+
+        NUEVO: Ahora usa embeddings para encontrar preguntas similares, no solo idénticas.
+
+        Args:
+            question: Pregunta del usuario
+            similarity_threshold: Umbral de similitud mínima (0.0 a 1.0, default 0.85)
+
+        Returns:
+            Diccionario con la corrección si existe, None si no
+        """
+        try:
+            # Intentar primero con hash exacto (más rápido)
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            question_hash = self._hash_question(question)
+
+            cursor.execute("""
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used
+                FROM learned_corrections
+                WHERE question_hash = ?
+            """, (question_hash,))
+
+            row = cursor.fetchone()
+
+            if row:
+                conn.close()
+                logger.info(f"✅ Corrección encontrada con hash exacto")
+                return {
+                    "id": row[0],
+                    "question_text": row[1],
+                    "corrected_answer": row[2],
+                    "correction_type": row[3],
+                    "category": row[4],
+                    "times_used": row[5],
+                    "similarity_score": 1.0
+                }
+
+            # Si no hay match exacto, usar búsqueda semántica
+            logger.info(f"🔍 No hay match exacto. Buscando correcciones similares...")
+
+            # Obtener todas las correcciones para comparar
+            cursor.execute("""
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used
+                FROM learned_corrections
+                ORDER BY times_used DESC
+                LIMIT 100
+            """)
+
+            all_corrections = cursor.fetchall()
+            conn.close()
+
+            if not all_corrections:
+                return None
+
+            # Calcular embeddings y similitud
+            from sentence_transformers import SentenceTransformer
+            import numpy as np
+
+            # Cargar modelo (esto se cachea automáticamente)
+            model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+            # Embedding de la pregunta actual
+            question_embedding = model.encode([question])[0]
+
+            # Embeddings de todas las preguntas guardadas
+            saved_questions = [row[1] for row in all_corrections]
+            saved_embeddings = model.encode(saved_questions)
+
+            # Calcular similitud coseno
+            from numpy.linalg import norm
+            similarities = [
+                np.dot(question_embedding, saved_emb) / (norm(question_embedding) * norm(saved_emb))
+                for saved_emb in saved_embeddings
+            ]
+
+            # Encontrar la mejor coincidencia
+            max_similarity = max(similarities)
+            best_idx = similarities.index(max_similarity)
+
+            logger.info(f"🎯 Mejor similitud: {max_similarity:.3f} con pregunta: '{saved_questions[best_idx][:60]}...'")
+
+            if max_similarity >= similarity_threshold:
+                best_match = all_corrections[best_idx]
+                logger.info(f"✅ Corrección similar encontrada (similitud: {max_similarity:.3f})")
+                return {
+                    "id": best_match[0],
+                    "question_text": best_match[1],
+                    "corrected_answer": best_match[2],
+                    "correction_type": best_match[3],
+                    "category": best_match[4],
+                    "times_used": best_match[5],
+                    "similarity_score": float(max_similarity)
+                }
+            else:
+                logger.info(f"❌ No se encontró corrección similar (mejor similitud: {max_similarity:.3f} < {similarity_threshold})")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Error en búsqueda semántica: {e}")
+            return None
+
+    def mark_correction_used(self, correction_id: int):
+        """Marca que una corrección fue usada y actualiza estadísticas."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE learned_corrections
+            SET times_used = times_used + 1,
+                last_used = ?
+            WHERE id = ?
+        """, (datetime.now().isoformat(), correction_id))
+
+        conn.commit()
+        conn.close()
+        logger.info(f"📊 Corrección {correction_id} marcada como usada")
+
+    def get_all_corrections(self, category: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las correcciones aprendidas, opcionalmente filtradas por categoría.
+
+        Args:
+            category: Filtrar por categoría (None = todas)
+            limit: Límite de resultados
+
+        Returns:
+            Lista de correcciones
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        if category:
+            cursor.execute("""
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at
+                FROM learned_corrections
+                WHERE category = ?
+                ORDER BY times_used DESC, created_at DESC
+                LIMIT ?
+            """, (category, limit))
+        else:
+            cursor.execute("""
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at
+                FROM learned_corrections
+                ORDER BY times_used DESC, created_at DESC
+                LIMIT ?
+            """, (limit,))
+
+        corrections = []
+        for row in cursor.fetchall():
+            corrections.append({
+                "id": row[0],
+                "question_text": row[1],
+                "corrected_answer": row[2],
+                "correction_type": row[3],
+                "category": row[4],
+                "times_used": row[5],
+                "created_at": row[6]
+            })
+
+        conn.close()
+        return corrections

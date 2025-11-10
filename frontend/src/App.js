@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
-import TrainingMode from './TrainingMode';
+import TrainingChat from './TrainingChat';
 
 function App() {
   const [conversations, setConversations] = useState([
@@ -12,18 +12,50 @@ function App() {
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [selectedReference, setSelectedReference] = useState(null);
   const [showTrainingMode, setShowTrainingMode] = useState(false);
+  const [typingMessage, setTypingMessage] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingSources, setTypingSources] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    // Cargar tema desde localStorage o usar 'light' por defecto
+    return localStorage.getItem('theme') || 'light';
+  });
   const messagesEndRef = useRef(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  // Usar rutas relativas para que funcione con el proxy y con ngrok
+  const API_URL = process.env.REACT_APP_API_URL || '';
 
   const currentConv = conversations.find(c => c.id === currentConvId);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Auto-scroll desactivado para permitir lectura sin interrupciones
+  // const scrollToBottom = () => {
+  //   messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // };
+  // useEffect(() => {
+  //   scrollToBottom();
+  // }, [currentConv?.messages]);
+
+  // Aplicar tema al document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  // Toggle entre tema claro y oscuro
+  const toggleTheme = () => {
+    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
   };
 
+  // Close sidebar when window is resized to desktop size
   useEffect(() => {
-    scrollToBottom();
-  }, [currentConv?.messages]);
+    const handleResize = () => {
+      if (window.innerWidth > 768 && sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [sidebarOpen]);
 
   const createNewConversation = () => {
     if (currentConv.messages.length === 0) return;
@@ -58,6 +90,60 @@ function App() {
     }
   };
 
+  const typeMessage = (fullMessage, sources, updatedConv) => {
+    setIsTyping(true);
+    setTypingMessage('');
+    setTypingSources(sources || []); // Guardar fuentes para la animación
+
+    // Dividir por líneas primero para mantener el formato
+    const lines = fullMessage.split('\n');
+    let currentText = '';
+    let currentLineIndex = 0;
+    let currentWordIndex = 0;
+
+    const typeInterval = setInterval(() => {
+      if (currentLineIndex < lines.length) {
+        const currentLine = lines[currentLineIndex];
+        const words = currentLine.split(' ');
+        
+        if (currentWordIndex < words.length) {
+          // Agregar palabra actual
+          currentText += (currentWordIndex > 0 ? ' ' : '') + words[currentWordIndex];
+          currentWordIndex++;
+          setTypingMessage(currentText);
+        } else {
+          // Pasar a la siguiente línea
+          if (currentLineIndex < lines.length - 1) {
+            currentText += '\n';
+            setTypingMessage(currentText);
+          }
+          currentLineIndex++;
+          currentWordIndex = 0;
+        }
+      } else {
+        clearInterval(typeInterval);
+        setIsTyping(false);
+
+        // Una vez terminada la animación, agregar mensaje completo
+        // SIN hacer scroll automático
+        const assistantMessage = {
+          role: 'assistant',
+          content: fullMessage,
+          sources: sources || []
+        };
+
+        setConversations(conversations.map(c =>
+          c.id === currentConvId
+            ? { ...c, messages: [...updatedConv.messages, assistantMessage] }
+            : c
+        ));
+
+        setTypingMessage('');
+        setTypingSources([]);
+      }
+    }, 20); // 20ms entre palabras para animación fluida
+  };
+
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -69,10 +155,10 @@ function App() {
       timestamp: new Date()
     };
 
-    setConversations(conversations.map(c => 
+    setConversations(conversations.map(c =>
       c.id === currentConvId ? updatedConv : c
     ));
-    
+
     updateConversationTitle(updatedConv);
     setInput('');
     setIsLoading(true);
@@ -94,28 +180,21 @@ function App() {
 
       const data = await response.json();
 
-      const assistantMessage = {
+      // Iniciar animación de escritura
+      setIsLoading(false);
+      typeMessage(data.answer, data.sources, updatedConv);
+
+    } catch (error) {
+      console.error('Error:', error);
+      const errorMessage = {
         role: 'assistant',
-        content: data.answer,
-        sources: data.sources || [] // Guardar fuentes para referencias clickeables
+        content: 'Lo siento, hubo un error al conectar con el servidor. Por favor intenta de nuevo.'
       };
       setConversations(conversations.map(c =>
         c.id === currentConvId
-          ? { ...c, messages: [...updatedConv.messages, assistantMessage] }
-          : c
-      ));
-    } catch (error) {
-      console.error('Error:', error);
-      const errorMessage = { 
-        role: 'assistant', 
-        content: 'Lo siento, hubo un error al conectar con el servidor. Por favor intenta de nuevo.' 
-      };
-      setConversations(conversations.map(c => 
-        c.id === currentConvId 
           ? { ...c, messages: [...updatedConv.messages, errorMessage] }
           : c
       ));
-    } finally {
       setIsLoading(false);
     }
   };
@@ -144,14 +223,27 @@ function App() {
     setShowReferenceModal(true);
   };
 
-  // Renderizar mensaje con referencias clickeables
-  const renderMessageWithReferences = (content, sources) => {
-    if (!sources || sources.length === 0) {
-      return content;
-    }
+  // Parser de markdown simple (como ChatGPT)
+  const parseMarkdownLine = (text) => {
+    // No procesar líneas vacías
+    if (!text.trim()) return text;
 
+    // Procesar negritas **texto** o __texto__
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+    // Procesar cursiva *texto* o _texto_
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+
+    return text;
+  };
+
+  // Renderizar mensaje con markdown y referencias clickeables
+  const renderMessageWithReferences = (content, sources) => {
     // Dividir en líneas para procesar
     const lines = content.split('\n');
+
     return lines.map((line, lineIdx) => {
       // Detectar si es una línea de referencia con URL
       const urlRefMatch = line.match(/^\[(\d+)\]\s+(.+?)\s+-\s+(https?:\/\/.+)$/);
@@ -184,7 +276,47 @@ function App() {
         );
       }
 
-      // Buscar referencias [número] en la línea
+      // Detectar líneas separadoras ---
+      if (line.trim() === '---') {
+        return (
+          <React.Fragment key={lineIdx}>
+            <div style={{ borderTop: '1px solid #444', margin: '1rem 0' }} />
+          </React.Fragment>
+        );
+      }
+
+      // Detectar encabezados ## o ### (convertir a emoji + negrita sin mostrar ##)
+      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+      if (headingMatch) {
+        const headingText = headingMatch[2];
+        const parsedHeading = parseMarkdownLine(headingText);
+        return (
+          <React.Fragment key={lineIdx}>
+            <strong
+              className="markdown-heading"
+              dangerouslySetInnerHTML={{ __html: '📋 ' + parsedHeading }}
+            />
+            {lineIdx < lines.length - 1 && <br />}
+          </React.Fragment>
+        );
+      }
+
+      // Detectar listas con - o *
+      const listMatch = line.match(/^[-*]\s+(.+)$/);
+      if (listMatch) {
+        const listText = listMatch[1];
+        const parsedList = parseMarkdownLine(listText);
+        return (
+          <React.Fragment key={lineIdx}>
+            <span className="markdown-list-item">
+              • <span dangerouslySetInnerHTML={{ __html: parsedList }} />
+            </span>
+            {lineIdx < lines.length - 1 && <br />}
+          </React.Fragment>
+        );
+      }
+
+      // Procesar referencias [número] en la línea
       const parts = line.split(/(\[\d+\]|\[Web\])/g);
 
       return (
@@ -205,7 +337,9 @@ function App() {
                 </button>
               );
             }
-            return <span key={partIdx}>{part}</span>;
+            // Procesar markdown en el texto normal
+            const parsedPart = parseMarkdownLine(part);
+            return <span key={partIdx} dangerouslySetInnerHTML={{ __html: parsedPart }} />;
           })}
           {lineIdx < lines.length - 1 && <br />}
         </React.Fragment>
@@ -215,11 +349,31 @@ function App() {
 
   return (
     <div className="app">
+      {/* Mobile Menu Toggle Button */}
+      <button 
+        className="mobile-menu-toggle"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        aria-label="Toggle menu"
+      >
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
+
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="mobile-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <button 
           className="new-chat-btn"
-          onClick={createNewConversation}
+          onClick={() => {
+            createNewConversation();
+            setSidebarOpen(false); // Close sidebar on mobile when creating new conversation
+          }}
           disabled={currentConv.messages.length === 0}
         >
           ➕ Nueva conversación
@@ -234,7 +388,10 @@ function App() {
             <div key={conv.id} className="conversation-item-wrapper">
               <button
                 className={`conversation-item ${conv.id === currentConvId ? 'active' : ''}`}
-                onClick={() => setCurrentConvId(conv.id)}
+                onClick={() => {
+                  setCurrentConvId(conv.id);
+                  setSidebarOpen(false); // Close sidebar on mobile when selecting conversation
+                }}
               >
                 <div className="conversation-title">
                   💬 {conv.title}
@@ -255,9 +412,50 @@ function App() {
         </div>
 
         <div className="sidebar-footer">
+          {/* Theme Toggle Switch en sidebar (móvil) */}
+          <div className="theme-toggle-container sidebar-theme-toggle">
+            <div 
+              className="theme-toggle-switch"
+              data-theme={theme}
+              onClick={toggleTheme}
+              role="button"
+              aria-label={theme === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleTheme();
+                }
+              }}
+            >
+              <span className="theme-icon sun">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/>
+                  <line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/>
+                  <line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              </span>
+              <span className="theme-icon moon">
+                <svg viewBox="0 0 24 24">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </span>
+              <div className="theme-toggle-slider"></div>
+            </div>
+          </div>
+          
           <button
             className="training-mode-btn"
-            onClick={() => setShowTrainingMode(true)}
+            onClick={() => {
+              setShowTrainingMode(true);
+              setSidebarOpen(false); // Close sidebar on mobile when opening training mode
+            }}
             title="Modo Entrenamiento"
           >
             🎓 Modo Entrenamiento
@@ -270,47 +468,87 @@ function App() {
       {/* Main Content */}
       <div className="main-content">
         <div className="header">
-          <h1>Chat FJ</h1>
-          <p>Servicio Nacional de Facilitadoras y Facilitadores Judiciales</p>
+          <h1>⚖️ Chat FJ - Servicio Nacional de Facilitadoras y Facilitadores Judiciales</h1>
+          
+          {/* Theme Toggle Switch */}
+          <div className="theme-toggle-container">
+            <div 
+              className="theme-toggle-switch"
+              data-theme={theme}
+              onClick={toggleTheme}
+              role="button"
+              aria-label={theme === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleTheme();
+                }
+              }}
+            >
+              <span className="theme-icon sun">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/>
+                  <line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/>
+                  <line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              </span>
+              <span className="theme-icon moon">
+                <svg viewBox="0 0 24 24">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              </span>
+              <div className="theme-toggle-slider"></div>
+            </div>
+          </div>
         </div>
 
         <div className="chat-container">
           {currentConv.messages.length === 0 ? (
             <div className="welcome-screen">
-              <h2>¿En qué puedo ayudarte hoy?</h2>
+              <h2>⚖️ ¿En qué puedo ayudarte hoy?</h2>
               <p>Estoy aquí para orientarte sobre temas legales y judiciales en Costa Rica</p>
               
-              <div className="examples">
-                <p className="examples-title">Ejemplos de consultas</p>
-                <div className="example-cards">
-                  <button 
-                    className="example-card"
-                    onClick={() => handleExampleClick('Mi ex no paga pensión, ¿qué hago?')}
-                  >
-                    <h4>💰 Pensión</h4>
-                    <p>Mi ex no paga pensión, ¿qué hago?</p>
-                  </button>
-                  <button 
-                    className="example-card"
-                    onClick={() => handleExampleClick('¿Cuánto dura una conciliación?')}
-                  >
-                    <h4>⚖️ Conciliación</h4>
-                    <p>¿Cuánto dura una conciliación?</p>
-                  </button>
-                  <button 
-                    className="example-card"
-                    onClick={() => handleExampleClick('Mi jefe no me paga horas extra')}
-                  >
-                    <h4>👔 Laboral</h4>
-                    <p>Mi jefe no me paga horas extra</p>
-                  </button>
-                </div>
+              <div className="example-cards">
+                <button 
+                  className="example-card"
+                  onClick={() => handleExampleClick('Mi ex no paga pensión, ¿qué hago?')}
+                >
+                  <div className="example-card-icon">💰</div>
+                  <div className="example-card-title">Pensión Alimentaria</div>
+                  <div className="example-card-text">Mi ex no paga pensión, ¿qué hago?</div>
+                </button>
+                <button
+                  className="example-card"
+                  onClick={() => handleExampleClick('¿Que es una conciliación?')}
+                >
+                  <div className="example-card-icon">⚖️</div>
+                  <div className="example-card-title">Conciliación</div>
+                  <div className="example-card-text">¿Que es una conciliación?</div>
+                </button>
+                <button 
+                  className="example-card"
+                  onClick={() => handleExampleClick('Mi jefe no me paga horas extra')}
+                >
+                  <div className="example-card-icon">👔</div>
+                  <div className="example-card-title">Derecho Laboral</div>
+                  <div className="example-card-text">Mi jefe no me paga horas extra</div>
+                </button>
               </div>
             </div>
           ) : (
-            <div className="messages">
+            <div className="messages-container">
               {currentConv.messages.map((msg, idx) => (
-                <div key={idx} className={`message ${msg.role}-message`}>
+                <div key={idx} className={`message ${msg.role}`}>
+                  <div className="message-avatar">
+                    {msg.role === 'user' ? '👤' : '⚖️'}
+                  </div>
                   <div className="message-content">
                     {msg.role === 'assistant'
                       ? renderMessageWithReferences(msg.content, msg.sources)
@@ -325,9 +563,21 @@ function App() {
                 </div>
               ))}
               {isLoading && (
-                <div className="message assistant-message">
-                  <div className="message-content loading">
-                    ⚖️ Pensando...
+                <div className="typing-indicator">
+                  <div className="message-avatar">⚖️</div>
+                  <div className="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+              )}
+              {isTyping && typingMessage && (
+                <div className="message assistant">
+                  <div className="message-avatar">⚖️</div>
+                  <div className="message-content">
+                    {renderMessageWithReferences(typingMessage, typingSources)}
+                    <span className="typing-cursor">▊</span>
                   </div>
                 </div>
               )}
@@ -336,18 +586,45 @@ function App() {
           )}
         </div>
 
-        <form className="input-section" onSubmit={sendMessage}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Envía un mensaje a Chat FJ... (Presiona Enter para enviar)"
-            disabled={isLoading}
-          />
-        </form>
-
-        <div className="footer">
-          Chat FJ puede cometer errores. Verifica la información importante con fuentes oficiales.
+        <div className="input-section">
+          <div className="input-wrapper">
+            <div className="input-container">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(e);
+                  }
+                }}
+                placeholder="Envía un mensaje a Chat FJ..."
+                disabled={isLoading}
+                rows={1}
+                style={{
+                  height: 'auto',
+                  minHeight: '24px',
+                  maxHeight: '200px',
+                }}
+                onInput={(e) => {
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+              />
+              <button
+                type="submit"
+                className="send-button"
+                onClick={sendMessage}
+                disabled={isLoading || !input.trim()}
+                title="Enviar mensaje"
+              >
+                {isLoading ? <div className="spinner"></div> : '↑'}
+              </button>
+            </div>
+            <div className="footer-text">
+              Chat FJ puede cometer errores. Verifica la información importante.
+            </div>
+          </div>
         </div>
       </div>
 
@@ -414,7 +691,7 @@ function App() {
 
       {/* Modo Entrenamiento */}
       {showTrainingMode && (
-        <TrainingMode onClose={() => setShowTrainingMode(false)} />
+        <TrainingChat onClose={() => setShowTrainingMode(false)} />
       )}
     </div>
   );
