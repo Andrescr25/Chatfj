@@ -17,7 +17,7 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
-        value: llama-3.1-8b-instant
+        value: openai/gpt-oss-120b
       - key: CHROMA_PERSIST_DIRECTORY
         value: /opt/render/project/src/data/chroma_db
       - key: EMBEDDING_MODEL

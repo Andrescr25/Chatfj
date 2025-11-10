@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './TrainingMode.css';
+import DocumentUpload from './DocumentUpload';
 
 function TrainingMode({ onClose }) {
   const [currentQuestion, setCurrentQuestion] = useState('');
@@ -10,10 +11,13 @@ function TrainingMode({ onClose }) {
     evaluatorNotes: '',
     feedbackItems: []
   });
+  const [correctedAnswer, setCorrectedAnswer] = useState('');
+  const [showCorrectionBox, setShowCorrectionBox] = useState(false);
   const [statistics, setStatistics] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  // Usar rutas relativas para que funcione con el proxy y con ngrok
+  const API_URL = process.env.REACT_APP_API_URL || '';
 
   // Cargar estadísticas al iniciar
   useEffect(() => {
@@ -137,6 +141,51 @@ function TrainingMode({ onClose }) {
     });
   };
 
+  const submitCorrection = async () => {
+    if (!currentAnswer || !correctedAnswer.trim()) {
+      alert('Por favor escribe la respuesta corregida');
+      return;
+    }
+
+    try {
+      // Determinar tipo de corrección basado en feedback items
+      let correction_type = 'content';
+      if (feedbackData.feedbackItems.length > 0) {
+        const firstItem = feedbackData.feedbackItems[0];
+        if (firstItem.feedback_type === 'citation_error') correction_type = 'citation';
+        else if (firstItem.feedback_type === 'category_error') correction_type = 'category';
+        else if (firstItem.feedback_type === 'format_error') correction_type = 'format';
+      }
+
+      const response = await fetch(`${API_URL}/training/learn-correction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: currentAnswer.question,
+          original_answer: currentAnswer.answer,
+          corrected_answer: correctedAnswer,
+          correction_type: correction_type,
+          category: currentAnswer.category_detected
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert(`🎓 ¡Corrección guardada! El sistema usará esta respuesta en futuras consultas idénticas.\n\nID: ${data.correction_id}`);
+
+        // También guardar como feedback "corrected"
+        await submitFeedback('corrected');
+
+        // Resetear
+        setCorrectedAnswer('');
+        setShowCorrectionBox(false);
+      }
+    } catch (error) {
+      console.error('Error guardando corrección:', error);
+      alert('Error al guardar corrección');
+    }
+  };
+
   const exportData = async () => {
     try {
       const response = await fetch(`${API_URL}/training/export?status=approved`, {
@@ -236,7 +285,79 @@ function TrainingMode({ onClose }) {
               >
                 ✗ Rechazar
               </button>
+              <button
+                className="btn-correct"
+                onClick={() => setShowCorrectionBox(!showCorrectionBox)}
+                style={{ backgroundColor: '#ff9800', color: 'white' }}
+              >
+                ✏️ Corregir y Aprender
+              </button>
             </div>
+
+            {/* Área de corrección (NUEVO - Aprendizaje en tiempo real) */}
+            {showCorrectionBox && (
+              <div className="correction-box" style={{
+                marginTop: '20px',
+                padding: '20px',
+                border: '2px solid #ff9800',
+                borderRadius: '8px',
+                backgroundColor: '#fff8e1'
+              }}>
+                <h3 style={{ color: '#f57c00', marginTop: 0 }}>🎓 Corrección para Aprendizaje en Tiempo Real</h3>
+                <p style={{ fontSize: '14px', color: '#666', marginBottom: '15px' }}>
+                  Escribe la respuesta corregida completa. El sistema la guardará y la usará automáticamente
+                  la próxima vez que reciba esta misma pregunta.
+                </p>
+                <textarea
+                  value={correctedAnswer}
+                  onChange={(e) => setCorrectedAnswer(e.target.value)}
+                  placeholder="Escribe aquí la respuesta corregida completa..."
+                  rows="8"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '4px',
+                    border: '1px solid #ff9800',
+                    fontSize: '14px',
+                    fontFamily: 'inherit'
+                  }}
+                />
+                <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={submitCorrection}
+                    disabled={!correctedAnswer.trim()}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#4caf50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: correctedAnswer.trim() ? 'pointer' : 'not-allowed',
+                      fontWeight: 'bold',
+                      opacity: correctedAnswer.trim() ? 1 : 0.5
+                    }}
+                  >
+                    💾 Guardar Corrección y Aprender
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCorrectedAnswer('');
+                      setShowCorrectionBox(false);
+                    }}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#f44336',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕ Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Notas del evaluador */}
             <div className="evaluator-notes">
@@ -316,6 +437,9 @@ function TrainingMode({ onClose }) {
             </div>
           </div>
         )}
+
+        {/* Componente de subida de documentos */}
+        <DocumentUpload API_URL={API_URL} />
 
         {/* Acciones adicionales */}
         <div className="training-actions">
