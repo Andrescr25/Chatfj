@@ -32,6 +32,26 @@ logger = logging.getLogger(__name__)
 
 CONTACT_TOKEN_REGEX = re.compile(r"[0-9][0-9A-Za-z\s()./-]{2,}")
 
+POPULAR_CR_INSTITUTIONS = [
+    "Poder Judicial",
+    "Juzgado de Violencia Doméstica",
+    "Juzgado de Familia",
+    "Defensoría de los Habitantes",
+    "Defensa Pública",
+    "INAMU",
+    "PANI",
+    "Caja Costarricense de Seguro Social (CCSS)",
+    "Ministerio de Trabajo y Seguridad Social (MTSS)",
+    "Ministerio Público / Fiscalía",
+    "Ministerio de Seguridad Pública",
+    "Línea 911 de emergencias",
+    "Oficinas locales del Poder Judicial"
+]
+
+POPULAR_CR_INSTITUTIONS_TEXT = "\n".join(
+    f"  ✅ {name}" for name in POPULAR_CR_INSTITUTIONS
+)
+
 
 def mask_contact_tokens(text: str, placeholder: str = "[dato de contacto no verificado]") -> str:
     """Reemplaza teléfonos u otros datos de contacto no verificados."""
@@ -1457,6 +1477,22 @@ Basa tu respuesta en este contexto. NO inventes información.
 • Si no tenés certeza del nombre oficial, decí que no contás con ese dato verificado
 • Teléfonos, correos o direcciones deben salir del bloque "INFORMACIÓN WEB ACTUALIZADA" o de los documentos
 • Si no hay datos verificados, dejalo en claro y evitá inventar información
+• Preferí nombres cortos y conocidos en lugar de títulos largos o fantasiosos
+"""
+
+            popular_institutions_block = f"""
+🏢 INSTITUCIONES MÁS CONOCIDAS (USÁ ESTAS PRIMERO):
+{POPULAR_CR_INSTITUTIONS_TEXT}
+• Si necesitás otra institución, usá el nombre simple y explicá en una frase quién es
+• Evitá inventar oficinas nuevas o nombres kilométricos que no reconoce la gente
+"""
+
+            audience_block = """
+👵 PERSONAS USUARIAS (OBLIGATORIO):
+• Estás ayudando a personas adultas mayores o de bajos recursos con poca escolaridad
+• Usá palabras simples, frases cortas (máximo 20 palabras) y ejemplos concretos
+• Explicá cada institución famosa con una frase práctica: qué hace y por qué le sirve
+• Evitá tecnicismos, siglas sin explicar o jerga jurídica complicada
 """
 
             prompt = f"""🧠 ROL Y PERSONALIDAD:
@@ -1485,7 +1521,9 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • SIEMPRE usa lenguaje inclusivo: "juez o jueza", "trabajador o trabajadora", "el usuario o la usuaria"
 • Alterna formas inclusivas naturalmente: "persona trabajadora", "persona profesional en derecho"
 • NUNCA uses solo masculino como genérico
+{audience_block}
 {institution_policy_block}
+{popular_institutions_block}
 {learning_context}{sources_section}{contact_guard_note}{context_section}
 🎯 ESTILO DE RESPUESTA (MUY IMPORTANTE):
 • Hablá de forma natural y conversacional - usá "vos", "podés", "te explico"
@@ -1498,6 +1536,8 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • Si mencionás leyes, hacelo de forma simple e integrada en el texto natural
 • Usá viñetas o listas numeradas para que sea fácil de leer
 • Terminá ofreciendo ayuda adicional: "¿Querés que te explique más sobre...?"
+• Cada sección debe tener frases cortas y sin párrafos extensos (máximo 3 oraciones)
+• Explicá cualquier sigla la primera vez que la uses: "INAMU (Instituto Nacional de las Mujeres)"
 
 📝 FORMATO DE TEXTO (CRÍTICO - SEGUIR SIEMPRE):
 • Para títulos principales: ## Título (solo al inicio)
@@ -1525,11 +1565,14 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • NO listes fuentes numeradas como "[1] Documento legal" al final
 • NO agregues notas como "⚠️ Nota: Recomendamos verificar..." al final
 • La respuesta debe terminar con tu último consejo o pregunta de seguimiento
+• Nombres kilométricos o inventados de instituciones; si no es conocida, no la menciones
+• Siglas sin explicar o frases rebuscadas que confundan
 
 ✅ HACÉ:
 • Empatizá con la situación de la persona
 • Explicá los pasos concretos que debe seguir
 • Mencioná instituciones específicas donde puede ir
+• Priorizá instituciones públicas conocidas como las del bloque anterior
 • Agregá consejos prácticos basados en el contexto
 • Si necesitás mencionar una fuente legal, integrala naturalmente en el texto
 • Mantené la conversación natural y fluida
