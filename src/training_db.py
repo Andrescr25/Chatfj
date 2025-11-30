@@ -3,6 +3,7 @@ Sistema de Base de Datos para Modo Entrenamiento
 Permite guardar feedback, evaluaciones y datos de mejora del sistema
 """
 
+import math
 import os
 import sqlite3
 import json
@@ -142,6 +143,7 @@ class TrainingDatabase:
                 category TEXT,
                 times_used INTEGER DEFAULT 0,
                 success_rate REAL DEFAULT 100.0,
+                effective_uses REAL DEFAULT 0.0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 last_used TEXT,
                 intent TEXT DEFAULT 'general',
@@ -151,11 +153,28 @@ class TrainingDatabase:
 
         self._ensure_column(cursor, "learned_corrections", "intent", "TEXT DEFAULT 'general'")
         self._ensure_column(cursor, "learned_corrections", "embedding", "BLOB")
+        self._ensure_column(cursor, "learned_corrections", "effective_uses", "REAL DEFAULT 0.0")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS correction_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                correction_id INTEGER NOT NULL,
+                question TEXT NOT NULL,
+                mode TEXT DEFAULT 'chat',
+                result TEXT DEFAULT 'pending',
+                source TEXT DEFAULT 'implicit',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT,
+                FOREIGN KEY (correction_id) REFERENCES learned_corrections(id)
+            )
+        """)
 
         # Índice para búsqueda rápida de correcciones por hash de pregunta
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_question_hash ON learned_corrections(question_hash)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON learned_corrections(category)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_intent ON learned_corrections(intent)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_correction_usage_correction ON correction_usage(correction_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_correction_usage_result ON correction_usage(result)")
 
         # Índices para búsquedas rápidas
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON evaluations(status)")
@@ -560,7 +579,8 @@ class TrainingDatabase:
             target_intent = IntentClassifier.detect(question)
 
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, intent, embedding
+                SELECT id, question_text, corrected_answer, correction_type, category,
+                       times_used, intent, embedding, success_rate, effective_uses, last_used
                 FROM learned_corrections
                 WHERE question_hash = ?
             """, (question_hash,))
@@ -582,7 +602,9 @@ class TrainingDatabase:
                     "category": row[4],
                     "times_used": row[5],
                     "similarity_score": 1.0,
-                    "intent": row[6]
+                    "intent": row[6],
+                    "success_rate": row[8],
+                    "effective_uses": row[9]
                 }
 
             # Si no hay match exacto, usar búsqueda semántica
@@ -590,7 +612,8 @@ class TrainingDatabase:
 
             # Obtener todas las correcciones para comparar
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, intent, embedding
+                SELECT id, question_text, corrected_answer, correction_type, category,
+                       times_used, intent, embedding, success_rate, effective_uses, last_used
                 FROM learned_corrections
                 ORDER BY times_used DESC, COALESCE(last_used, created_at) DESC
                 LIMIT 300
@@ -611,8 +634,7 @@ class TrainingDatabase:
             question_vector = self._encode_vector(question)
             question_norm = np.linalg.norm(question_vector)
 
-            best_match = None
-            best_similarity = -1.0
+            candidates = []
 
             # Reutilizar conexión para actualizar embeddings faltantes
             conn = sqlite3.connect(self.db_path)
@@ -635,15 +657,48 @@ class TrainingDatabase:
                     continue
 
                 similarity = float(np.dot(question_vector, saved_vector) / (question_norm * saved_norm))
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = row
+                success_rate = row[8] or 100.0
+                effective_uses = row[9] or 0.0
+                last_used = row[10]
+
+                recency_score = 0.5
+                if last_used:
+                    try:
+                        last_dt = datetime.fromisoformat(last_used)
+                        days_since = (datetime.now() - last_dt).days
+                        recency_score = max(0.0, 1 - min(days_since, 90) / 90)
+                    except ValueError:
+                        recency_score = 0.5
+
+                usage_score = min(1.0, math.log1p(effective_uses + 1) / 3.0)
+                success_norm = min(1.0, max(0.0, success_rate / 100))
+
+                final_score = (
+                    0.45 * similarity +
+                    0.25 * success_norm +
+                    0.20 * recency_score +
+                    0.10 * usage_score
+                )
+
+                candidates.append({
+                    "row": row,
+                    "similarity": similarity,
+                    "final_score": final_score,
+                    "success_rate": success_rate,
+                    "effective_uses": effective_uses
+                })
 
             conn.commit()
             conn.close()
 
-            if best_match and best_similarity >= similarity_threshold:
-                logger.info(f"✅ Corrección similar encontrada (intención: {target_intent}, similitud: {best_similarity:.3f})")
+            eligible = [c for c in candidates if c["similarity"] >= similarity_threshold]
+            if eligible:
+                best_candidate = max(eligible, key=lambda c: c["final_score"])
+                best_match = best_candidate["row"]
+                logger.info(
+                    f"✅ Corrección similar encontrada (intención: {target_intent}, "
+                    f"similitud: {best_candidate['similarity']:.3f}, score: {best_candidate['final_score']:.3f})"
+                )
                 return {
                     "id": best_match[0],
                     "question_text": best_match[1],
@@ -651,10 +706,13 @@ class TrainingDatabase:
                     "correction_type": best_match[3],
                     "category": best_match[4],
                     "times_used": best_match[5],
-                    "similarity_score": float(best_similarity),
-                    "intent": best_match[6]
+                    "similarity_score": float(best_candidate["similarity"]),
+                    "intent": best_match[6],
+                    "success_rate": best_candidate["success_rate"],
+                    "effective_uses": best_candidate["effective_uses"]
                 }
 
+            best_similarity = max((c["similarity"] for c in candidates), default=0.0)
             logger.info(f"❌ No se encontró corrección similar (mejor similitud: {best_similarity:.3f} < {similarity_threshold})")
             return None
 
@@ -662,10 +720,62 @@ class TrainingDatabase:
             logger.error(f"❌ Error en búsqueda semántica: {e}")
             return None
 
-    def mark_correction_used(self, correction_id: int):
-        """Marca que una corrección fue usada y actualiza estadísticas."""
+    def _recalculate_correction_metrics(self, cursor: sqlite3.Cursor, correction_id: int):
+        cursor.execute("""
+            SELECT result, created_at FROM correction_usage
+            WHERE correction_id = ?
+        """, (correction_id,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            cursor.execute("""
+                UPDATE learned_corrections
+                SET success_rate = 100.0,
+                    effective_uses = 0.0
+                WHERE id = ?
+            """, (correction_id,))
+            return
+
+        successes = 0
+        failures = 0
+        effective_uses = 0.0
+        now = datetime.now()
+
+        for result, created_at in rows:
+            created_dt = datetime.fromisoformat(created_at) if created_at else now
+            days = max((now - created_dt).days, 0)
+            weight = 0.9 ** (days / 30)  # decaimiento aproximado cada mes
+            effective_uses += weight
+
+            if result == "success":
+                successes += 1
+            elif result == "fail":
+                failures += 1
+
+        considered = successes + failures
+        success_rate = (successes / considered * 100) if considered > 0 else 100.0
+
+        cursor.execute("""
+            UPDATE learned_corrections
+            SET success_rate = ?,
+                effective_uses = ?,
+                times_used = (
+                    SELECT COUNT(*) FROM correction_usage WHERE correction_id = ?
+                )
+            WHERE id = ?
+        """, (success_rate, effective_uses, correction_id, correction_id))
+
+    def log_correction_usage(self, correction_id: int, question: str, mode: str = "chat") -> int:
+        """Registra un uso pendiente para posterior retroalimentación."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO correction_usage (correction_id, question, mode, result)
+            VALUES (?, ?, ?, 'pending')
+        """, (correction_id, question, mode))
+
+        usage_id = cursor.lastrowid
 
         cursor.execute("""
             UPDATE learned_corrections
@@ -676,7 +786,43 @@ class TrainingDatabase:
 
         conn.commit()
         conn.close()
-        logger.info(f"📊 Corrección {correction_id} marcada como usada")
+        logger.info(f"📊 Uso registrado para corrección {correction_id} (usage_id={usage_id})")
+        return usage_id
+
+    def finalize_correction_usage(self, usage_id: int, result: str, source: str = "explicit") -> None:
+        """Marca un uso como éxito o fallo y recalcula métricas."""
+        if result not in {"success", "fail"}:
+            raise ValueError("result debe ser 'success' o 'fail'")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT correction_id FROM correction_usage
+            WHERE id = ?
+        """, (usage_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            raise ValueError(f"usage_id {usage_id} no encontrado")
+
+        correction_id = row[0]
+
+        cursor.execute("""
+            UPDATE correction_usage
+            SET result = ?, source = ?, updated_at = ?
+            WHERE id = ?
+        """, (result, source, datetime.now().isoformat(), usage_id))
+
+        self._recalculate_correction_metrics(cursor, correction_id)
+
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Uso {usage_id} registrado como {result} (corrección {correction_id})")
+
+    def mark_correction_used(self, correction_id: int, question: str, mode: str = "chat") -> int:
+        """Compatibilidad con llamadas existentes."""
+        return self.log_correction_usage(correction_id, question, mode)
 
     def get_all_corrections(self, category: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """
@@ -694,7 +840,8 @@ class TrainingDatabase:
 
         if category:
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at, intent
+                SELECT id, question_text, corrected_answer, correction_type, category,
+                       times_used, created_at, intent, success_rate, effective_uses
                 FROM learned_corrections
                 WHERE category = ?
                 ORDER BY times_used DESC, created_at DESC
@@ -702,7 +849,8 @@ class TrainingDatabase:
             """, (category, limit))
         else:
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at, intent
+                SELECT id, question_text, corrected_answer, correction_type, category,
+                       times_used, created_at, intent, success_rate, effective_uses
                 FROM learned_corrections
                 ORDER BY times_used DESC, created_at DESC
                 LIMIT ?
@@ -718,7 +866,9 @@ class TrainingDatabase:
                 "category": row[4],
                 "times_used": row[5],
                 "created_at": row[6],
-                "intent": row[7]
+                "intent": row[7],
+                "success_rate": row[8] if len(row) > 8 else None,
+                "effective_uses": row[9] if len(row) > 9 else None
             })
 
         conn.close()

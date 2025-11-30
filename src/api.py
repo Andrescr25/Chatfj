@@ -138,6 +138,8 @@ class QueryResponse(BaseModel):
     correction_type: str = ""  # Tipo de corrección si aplica
     similarity_score: float = 0.0  # Similitud con corrección aprendida
     matched_question: str = ""  # Pregunta original que matcheó
+    correction_usage_id: int = 0  # ID para registrar feedback de la corrección usada
+    correction_intent: str = ""
 
 
 class SmartCache:
@@ -1129,7 +1131,10 @@ class JudicialBot:
                     "corrected_answer": learned_correction['corrected_answer'],
                     "correction_type": learned_correction['correction_type'],
                     "similarity_score": similarity,
-                    "category": learned_correction.get('category', 'general')
+                    "category": learned_correction.get('category', 'general'),
+                    "intent": learned_correction.get('intent', 'general'),
+                    "success_rate": learned_correction.get('success_rate', 100.0),
+                    "effective_uses": learned_correction.get('effective_uses', 0.0)
                 }
 
                 logger.info(f"📚 Corrección se usará como EJEMPLO DE APRENDIZAJE, no como respuesta hardcodeada")
@@ -1597,10 +1602,15 @@ RESPUESTA:"""
                 response["correction_type"] = learned_context['correction_type']
                 response["similarity_score"] = learned_context['similarity_score']
                 response["matched_question"] = learned_context['question_text']
+                response["correction_intent"] = learned_context.get("intent", "general")
 
                 # Marcar que se usó la corrección
-                training_db.mark_correction_used(learned_context['id'])
-                logger.info(f"📊 Corrección {learned_context['id']} marcada como usada (similitud: {learned_context['similarity_score']:.1%})")
+                usage_id = training_db.mark_correction_used(learned_context['id'], question)
+                response["correction_usage_id"] = usage_id
+                logger.info(
+                    f"📊 Corrección {learned_context['id']} usada "
+                    f"(similitud: {learned_context['similarity_score']:.1%}, usage_id={usage_id})"
+                )
 
             self.cache.set(question, response)
             logger.info(f"✅ Respuesta híbrida generada en {response['processing_time']:.3f}s")
@@ -1967,6 +1977,12 @@ class CorrectionRequest(BaseModel):
     category: str = "general"
 
 
+class CorrectionUsageFeedback(BaseModel):
+    """Feedback para confirmar si la corrección ayudó o no."""
+    result: str  # "success" o "fail"
+    source: str = "explicit"
+
+
 @app.post("/training/learn-correction")
 async def learn_correction(request: CorrectionRequest):
     """
@@ -2011,6 +2027,23 @@ async def get_corrections(category: Optional[str] = None, limit: int = 100):
 
     except Exception as e:
         logger.error(f"❌ Error obteniendo correcciones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/training/correction-usage/{usage_id}")
+async def submit_correction_usage(usage_id: int, payload: CorrectionUsageFeedback):
+    """Permite registrar feedback explícito sobre una corrección aplicada."""
+    try:
+        training_db.finalize_correction_usage(usage_id, payload.result, payload.source)
+        return {
+            "success": True,
+            "usage_id": usage_id,
+            "result": payload.result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Error registrando feedback de corrección: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

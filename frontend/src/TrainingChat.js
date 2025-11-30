@@ -129,7 +129,8 @@ function TrainingChat({ onClose }) {
         role: 'assistant',
         content: data.answer,
         sources: data.sources || [],
-        processing_time: data.processing_time || 0
+        processing_time: data.processing_time || 0,
+        correctionUsageId: data.correction_usage_id || null
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -146,7 +147,8 @@ function TrainingChat({ onClose }) {
         originalAnswer: data.answer,
         sources: data.sources || [],
         processing_time: data.processing_time || 0,
-        messageIndex: messages.length + 1
+        messageIndex: messages.length + 1,
+        correctionUsageId: data.correction_usage_id || null
       });
 
     } catch (error) {
@@ -180,6 +182,14 @@ function TrainingChat({ onClose }) {
           feedback_items: []
         })
       });
+
+      if (waitingForFeedback.correctionUsageId) {
+        await fetch(`${API_URL}/training/correction-usage/${waitingForFeedback.correctionUsageId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: 'success', source: 'training-approve' })
+        });
+      }
 
       setMessages(prev => [...prev, {
         role: 'system',
@@ -255,6 +265,14 @@ function TrainingChat({ onClose }) {
       setCorrectionInput('');
       setWaitingForFeedback(null);
       setShowCorrectionForm(false);
+
+      if (waitingForFeedback.correctionUsageId) {
+        await fetch(`${API_URL}/training/correction-usage/${waitingForFeedback.correctionUsageId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: 'fail', source: 'training-correction' })
+        });
+      }
 
     } catch (error) {
       console.error('Error:', error);

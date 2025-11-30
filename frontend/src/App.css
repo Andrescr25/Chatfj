@@ -522,6 +522,69 @@ body {
   border-bottom-left-radius: 0.25rem;
 }
 
+.message-feedback {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.9rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.feedback-question {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.feedback-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.feedback-button {
+  flex: none;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.feedback-button.success {
+  background: rgba(16, 163, 127, 0.1);
+  color: var(--button-primary);
+  border-color: rgba(16, 163, 127, 0.4);
+}
+
+.feedback-button.fail {
+  background: rgba(220, 38, 38, 0.08);
+  color: #b45309;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.feedback-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.feedback-confirmed {
+  font-weight: 600;
+}
+
+.feedback-confirmed.success {
+  color: var(--button-primary);
+}
+
+.feedback-confirmed.fail {
+  color: #b45309;
+}
+
 .message-avatar {
   width: 32px;
   height: 32px;

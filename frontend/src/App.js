@@ -15,6 +15,7 @@ function App() {
   const [typingMessage, setTypingMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [typingSources, setTypingSources] = useState([]);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     // Cargar tema desde localStorage o usar 'light' por defecto
@@ -90,7 +91,7 @@ function App() {
     }
   };
 
-  const typeMessage = (fullMessage, sources, updatedConv) => {
+  const typeMessage = (fullMessage, sources, updatedConv, metadata = {}) => {
     setIsTyping(true);
     setTypingMessage('');
     setTypingSources(sources || []); // Guardar fuentes para la animación
@@ -129,7 +130,11 @@ function App() {
         const assistantMessage = {
           role: 'assistant',
           content: fullMessage,
-          sources: sources || []
+          sources: sources || [],
+          correctionUsageId: metadata?.correction_usage_id || null,
+          matchedQuestion: metadata?.matched_question || '',
+          learnedFromFeedback: metadata?.learned_from_feedback || false,
+          feedbackStatus: null
         };
 
         setConversations(conversations.map(c =>
@@ -182,7 +187,7 @@ function App() {
 
       // Iniciar animación de escritura
       setIsLoading(false);
-      typeMessage(data.answer, data.sources, updatedConv);
+      typeMessage(data.answer, data.sources, updatedConv, data);
 
     } catch (error) {
       console.error('Error:', error);
@@ -201,6 +206,33 @@ function App() {
 
   const handleExampleClick = (example) => {
     setInput(example);
+  };
+
+  const handleCorrectionFeedback = async (convId, messageIndex, usageId, result) => {
+    if (!usageId) return;
+    setFeedbackSubmitting(usageId);
+    try {
+      await fetch(`${API_URL}/training/correction-usage/${usageId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result, source: 'explicit' })
+      });
+
+      setConversations(prevConvs =>
+        prevConvs.map(conv => {
+          if (conv.id !== convId) return conv;
+          const updatedMessages = conv.messages.map((msg, idx) =>
+            idx === messageIndex ? { ...msg, feedbackStatus: result } : msg
+          );
+          return { ...conv, messages: updatedMessages };
+        })
+      );
+    } catch (error) {
+      console.error('Error enviando feedback:', error);
+      alert('No se pudo guardar tu feedback. Intenta de nuevo.');
+    } finally {
+      setFeedbackSubmitting(null);
+    }
   };
 
   const formatTimestamp = (timestamp) => {
@@ -559,6 +591,53 @@ function App() {
                           </React.Fragment>
                         ))
                     }
+                    {msg.role === 'assistant' && msg.correctionUsageId && (
+                      <div className="message-feedback">
+                        {msg.feedbackStatus ? (
+                          <span className={`feedback-confirmed ${msg.feedbackStatus}`}>
+                            {msg.feedbackStatus === 'success'
+                              ? '✅ ¡Gracias! Aprenderé de tu confirmación.'
+                              : '⚠️ Gracias por avisar, ajustaré esta corrección.'}
+                          </span>
+                        ) : (
+                          <>
+                            <span className="feedback-question">
+                              ¿Esta corrección aprendida te ayudó?
+                            </span>
+                            <div className="feedback-buttons">
+                              <button
+                                className="feedback-button success"
+                                disabled={feedbackSubmitting === msg.correctionUsageId}
+                                onClick={() =>
+                                  handleCorrectionFeedback(
+                                    currentConvId,
+                                    idx,
+                                    msg.correctionUsageId,
+                                    'success'
+                                  )
+                                }
+                              >
+                                Sí, me ayudó
+                              </button>
+                              <button
+                                className="feedback-button fail"
+                                disabled={feedbackSubmitting === msg.correctionUsageId}
+                                onClick={() =>
+                                  handleCorrectionFeedback(
+                                    currentConvId,
+                                    idx,
+                                    msg.correctionUsageId,
+                                    'fail'
+                                  )
+                                }
+                              >
+                                No, faltó precisión
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
