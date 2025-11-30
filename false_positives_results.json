@@ -1,0 +1,178 @@
+[
+  {
+    "question": "¿Cómo solicito una pensión alimentaria?",
+    "description": "Tema: Pensión - NO debería match con facilitadores",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es un divorcio contencioso?",
+    "description": "Tema: Divorcio - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cómo hago una demanda laboral?",
+    "description": "Tema: Laboral - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es una tutela legal?",
+    "description": "Tema: Tutela - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cómo tramito una herencia?",
+    "description": "Tema: Herencia - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es un desahucio?",
+    "description": "Tema: Desahucio - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cómo registro una marca comercial?",
+    "description": "Tema: Propiedad intelectual - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es la prescripción de una deuda?",
+    "description": "Tema: Deudas - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué puedo hacer?",
+    "description": "Demasiado vaga - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Me pueden ayudar?",
+    "description": "Muy genérica - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Dónde queda el juzgado?",
+    "description": "Ubicación física - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cuánto cuesta un abogado?",
+    "description": "Costos - NO debería match",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es el acoso laboral?",
+    "description": "Acoso laboral vs doméstico - NO debería confundir",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cómo denuncio bullying escolar?",
+    "description": "Bullying vs violencia doméstica - NO debería confundir",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué es una orden de restricción migratoria?",
+    "description": "Migración vs protección doméstica - NO debería confundir",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué facilidades de pago hay en el juzgado?",
+    "description": "Tiene 'facil' pero NO es sobre facilitadores",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cómo protejo mi propiedad de invasores?",
+    "description": "Tiene 'protección' pero NO es medida de protección",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Qué medidas toma el juez en un juicio civil?",
+    "description": "Tiene 'medidas' pero NO es sobre violencia doméstica",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Puedo facilitar documentos por correo?",
+    "description": "Tiene 'facilitar' pero NO es sobre facilitadores",
+    "learned_used": false,
+    "similarity": 0.0,
+    "matched_question": "N/A",
+    "is_false_positive": false
+  },
+  {
+    "question": "¿Cuánto dura un proceso de divorcio con violencia doméstica?",
+    "description": "Menciona violencia pero pregunta sobre divorcio",
+    "learned_used": true,
+    "similarity": 0.8050699234008789,
+    "matched_question": "Cuáles son los tipos de violencia doméstica que hay? ",
+    "is_false_positive": true
+  },
+  {
+    "question": "¿El facilitador judicial puede ser testigo en mi caso?",
+    "description": "Menciona facilitador pero pregunta algo muy específico",
+    "learned_used": true,
+    "similarity": 0.8728499412536621,
+    "matched_question": "¿Qué es un facilitador judicial?",
+    "is_false_positive": true
+  },
+  {
+    "question": "¿Las medidas cautelares son lo mismo que medidas de protección?",
+    "description": "Pregunta comparativa - podría confundir",
+    "learned_used": true,
+    "similarity": 0.8803750872612,
+    "matched_question": "Qué pasa cuando las medidas de protección se vencen? ",
+    "is_false_positive": true
+  }
+]
