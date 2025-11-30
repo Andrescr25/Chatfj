@@ -3,13 +3,39 @@ Sistema de Base de Datos para Modo Entrenamiento
 Permite guardar feedback, evaluaciones y datos de mejora del sistema
 """
 
+import os
 import sqlite3
 import json
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import logging
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+
+class IntentClassifier:
+    """Clasificador heurístico ligero para identificar la intención de una pregunta."""
+
+    RULES = [
+        ("definition", ["¿qué es", "que es", "definición", "definicion", "significa"]),
+        ("procedure", ["¿cómo", "como ", "tramitar", "pasos", "proceso", "solicito", "hacer que", "guiame", "presentar"]),
+        ("requirements", ["requisitos", "documentos", "necesito llevar", "qué necesito", "que necesito", "presentar", "adjuntar"]),
+        ("comparison", ["diferencia", "vs", "igual que", "lo mismo que", "comparación", "comparacion"]),
+        ("rights", ["derecho", "obligación", "obligacion", "puedo", "debo", "me corresponde", "beneficio"]),
+        ("contact", ["teléfono", "telefono", "contacto", "dirección", "direccion", "sede", "dónde queda", "donde queda"]),
+    ]
+
+    @classmethod
+    def detect(cls, question: str) -> str:
+        text = question.lower()
+        for intent, keywords in cls.RULES:
+            if any(keyword in text for keyword in keywords):
+                return intent
+        if len(text.split()) <= 3:
+            return "follow_up"
+        return "general"
 
 
 class TrainingDatabase:
@@ -17,7 +43,41 @@ class TrainingDatabase:
 
     def __init__(self, db_path: str = "data/training.db"):
         self.db_path = db_path
+        self._embedder: Optional[SentenceTransformer] = None
         self._init_db()
+
+    # ------------------------------------------------------------------
+    # Helpers internos
+    # ------------------------------------------------------------------
+    def _get_embedder(self) -> SentenceTransformer:
+        """Carga perezosamente el modelo de embeddings usado para aprendizaje."""
+        if self._embedder is None:
+            model_name = os.getenv("LEARNING_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+            logger.info(f"🔤 Cargando modelo de embeddings para aprendizaje: {model_name}")
+            self._embedder = SentenceTransformer(model_name)
+        return self._embedder
+
+    def _encode_vector(self, text: str) -> np.ndarray:
+        """Retorna el vector de embeddings en formato numpy."""
+        return self._get_embedder().encode([text or ""])[0].astype(np.float32)
+
+    def _encode_embedding(self, text: str) -> bytes:
+        """Genera el embedding en formato binario listo para SQLite."""
+        vector = self._encode_vector(text)
+        return vector.tobytes()
+
+    def _embedding_from_blob(self, blob: Optional[bytes]) -> Optional[np.ndarray]:
+        if not blob:
+            return None
+        return np.frombuffer(blob, dtype=np.float32)
+
+    def _ensure_column(self, cursor: sqlite3.Cursor, table: str, column: str, definition: str):
+        """Agrega una columna si no existe (migraciones rápidas)."""
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            logger.info(f"🆕 Columna agregada: {table}.{column}")
 
     def _init_db(self):
         """Inicializa las tablas de la base de datos."""
@@ -83,13 +143,19 @@ class TrainingDatabase:
                 times_used INTEGER DEFAULT 0,
                 success_rate REAL DEFAULT 100.0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_used TEXT
+                last_used TEXT,
+                intent TEXT DEFAULT 'general',
+                embedding BLOB
             )
         """)
+
+        self._ensure_column(cursor, "learned_corrections", "intent", "TEXT DEFAULT 'general'")
+        self._ensure_column(cursor, "learned_corrections", "embedding", "BLOB")
 
         # Índice para búsqueda rápida de correcciones por hash de pregunta
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_question_hash ON learned_corrections(question_hash)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON learned_corrections(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_intent ON learned_corrections(intent)")
 
         # Índices para búsquedas rápidas
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON evaluations(status)")
@@ -415,6 +481,8 @@ class TrainingDatabase:
         cursor = conn.cursor()
 
         question_hash = self._hash_question(question)
+        intent = IntentClassifier.detect(question)
+        embedding_blob = sqlite3.Binary(self._encode_embedding(question))
 
         # Verificar si ya existe una corrección para esta pregunta
         cursor.execute("""
@@ -431,18 +499,37 @@ class TrainingDatabase:
                 SET corrected_answer = ?,
                     correction_type = ?,
                     category = ?,
-                    created_at = ?
+                    created_at = ?,
+                    intent = ?,
+                    embedding = ?
                 WHERE id = ?
-            """, (corrected_answer, correction_type, category, datetime.now().isoformat(), existing[0]))
+            """, (
+                corrected_answer,
+                correction_type,
+                category,
+                datetime.now().isoformat(),
+                intent,
+                embedding_blob,
+                existing[0]
+            ))
             correction_id = existing[0]
             logger.info(f"🔄 Corrección actualizada: ID={correction_id}")
         else:
             # Insertar nueva corrección
             cursor.execute("""
                 INSERT INTO learned_corrections
-                (question_hash, question_text, original_answer, corrected_answer, correction_type, category)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (question_hash, question, original_answer, corrected_answer, correction_type, category))
+                (question_hash, question_text, original_answer, corrected_answer, correction_type, category, intent, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                question_hash,
+                question,
+                original_answer,
+                corrected_answer,
+                correction_type,
+                category,
+                intent,
+                embedding_blob
+            ))
             correction_id = cursor.lastrowid
             logger.info(f"✅ Nueva corrección aprendida: ID={correction_id}, Category={category}")
 
@@ -451,7 +538,7 @@ class TrainingDatabase:
 
         return correction_id
 
-    def get_learned_correction(self, question: str, similarity_threshold: float = 0.85) -> Optional[Dict[str, Any]]:
+    def get_learned_correction(self, question: str, similarity_threshold: float = 0.75) -> Optional[Dict[str, Any]]:
         """
         Busca una corrección aprendida para la pregunta dada usando búsqueda semántica.
 
@@ -459,7 +546,7 @@ class TrainingDatabase:
 
         Args:
             question: Pregunta del usuario
-            similarity_threshold: Umbral de similitud mínima (0.0 a 1.0, default 0.85)
+            similarity_threshold: Umbral de similitud mínima (0.0 a 1.0, default 0.75 - balance entre variaciones legítimas y falsos positivos)
 
         Returns:
             Diccionario con la corrección si existe, None si no
@@ -470,9 +557,10 @@ class TrainingDatabase:
             cursor = conn.cursor()
 
             question_hash = self._hash_question(question)
+            target_intent = IntentClassifier.detect(question)
 
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, intent, embedding
                 FROM learned_corrections
                 WHERE question_hash = ?
             """, (question_hash,))
@@ -480,6 +568,10 @@ class TrainingDatabase:
             row = cursor.fetchone()
 
             if row:
+                if not row[7]:
+                    embedding_blob = sqlite3.Binary(self._encode_embedding(row[1]))
+                    cursor.execute("UPDATE learned_corrections SET embedding = ? WHERE id = ?", (embedding_blob, row[0]))
+                    conn.commit()
                 conn.close()
                 logger.info(f"✅ Corrección encontrada con hash exacto")
                 return {
@@ -489,7 +581,8 @@ class TrainingDatabase:
                     "correction_type": row[3],
                     "category": row[4],
                     "times_used": row[5],
-                    "similarity_score": 1.0
+                    "similarity_score": 1.0,
+                    "intent": row[6]
                 }
 
             # Si no hay match exacto, usar búsqueda semántica
@@ -497,10 +590,10 @@ class TrainingDatabase:
 
             # Obtener todas las correcciones para comparar
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, intent, embedding
                 FROM learned_corrections
-                ORDER BY times_used DESC
-                LIMIT 100
+                ORDER BY times_used DESC, COALESCE(last_used, created_at) DESC
+                LIMIT 300
             """)
 
             all_corrections = cursor.fetchall()
@@ -509,36 +602,48 @@ class TrainingDatabase:
             if not all_corrections:
                 return None
 
-            # Calcular embeddings y similitud
-            from sentence_transformers import SentenceTransformer
-            import numpy as np
+            filtered = [row for row in all_corrections if row[6] == target_intent]
+            if not filtered and target_intent != "general":
+                filtered = [row for row in all_corrections if row[6] == "general"]
+            if not filtered:
+                filtered = all_corrections
 
-            # Cargar modelo (esto se cachea automáticamente)
-            model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            question_vector = self._encode_vector(question)
+            question_norm = np.linalg.norm(question_vector)
 
-            # Embedding de la pregunta actual
-            question_embedding = model.encode([question])[0]
+            best_match = None
+            best_similarity = -1.0
 
-            # Embeddings de todas las preguntas guardadas
-            saved_questions = [row[1] for row in all_corrections]
-            saved_embeddings = model.encode(saved_questions)
+            # Reutilizar conexión para actualizar embeddings faltantes
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
 
-            # Calcular similitud coseno
-            from numpy.linalg import norm
-            similarities = [
-                np.dot(question_embedding, saved_emb) / (norm(question_embedding) * norm(saved_emb))
-                for saved_emb in saved_embeddings
-            ]
+            for row in filtered:
+                correction_id = row[0]
+                question_text = row[1]
+                embedding_blob = row[7]
+                saved_vector = self._embedding_from_blob(embedding_blob)
+                if saved_vector is None:
+                    saved_vector = self._encode_vector(question_text)
+                    cursor.execute(
+                        "UPDATE learned_corrections SET embedding = ? WHERE id = ?",
+                        (sqlite3.Binary(saved_vector.tobytes()), correction_id)
+                    )
 
-            # Encontrar la mejor coincidencia
-            max_similarity = max(similarities)
-            best_idx = similarities.index(max_similarity)
+                saved_norm = np.linalg.norm(saved_vector)
+                if question_norm == 0 or saved_norm == 0:
+                    continue
 
-            logger.info(f"🎯 Mejor similitud: {max_similarity:.3f} con pregunta: '{saved_questions[best_idx][:60]}...'")
+                similarity = float(np.dot(question_vector, saved_vector) / (question_norm * saved_norm))
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = row
 
-            if max_similarity >= similarity_threshold:
-                best_match = all_corrections[best_idx]
-                logger.info(f"✅ Corrección similar encontrada (similitud: {max_similarity:.3f})")
+            conn.commit()
+            conn.close()
+
+            if best_match and best_similarity >= similarity_threshold:
+                logger.info(f"✅ Corrección similar encontrada (intención: {target_intent}, similitud: {best_similarity:.3f})")
                 return {
                     "id": best_match[0],
                     "question_text": best_match[1],
@@ -546,11 +651,12 @@ class TrainingDatabase:
                     "correction_type": best_match[3],
                     "category": best_match[4],
                     "times_used": best_match[5],
-                    "similarity_score": float(max_similarity)
+                    "similarity_score": float(best_similarity),
+                    "intent": best_match[6]
                 }
-            else:
-                logger.info(f"❌ No se encontró corrección similar (mejor similitud: {max_similarity:.3f} < {similarity_threshold})")
-                return None
+
+            logger.info(f"❌ No se encontró corrección similar (mejor similitud: {best_similarity:.3f} < {similarity_threshold})")
+            return None
 
         except Exception as e:
             logger.error(f"❌ Error en búsqueda semántica: {e}")
@@ -588,7 +694,7 @@ class TrainingDatabase:
 
         if category:
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at, intent
                 FROM learned_corrections
                 WHERE category = ?
                 ORDER BY times_used DESC, created_at DESC
@@ -596,7 +702,7 @@ class TrainingDatabase:
             """, (category, limit))
         else:
             cursor.execute("""
-                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at
+                SELECT id, question_text, corrected_answer, correction_type, category, times_used, created_at, intent
                 FROM learned_corrections
                 ORDER BY times_used DESC, created_at DESC
                 LIMIT ?
@@ -611,7 +717,8 @@ class TrainingDatabase:
                 "correction_type": row[3],
                 "category": row[4],
                 "times_used": row[5],
-                "created_at": row[6]
+                "created_at": row[6],
+                "intent": row[7]
             })
 
         conn.close()
