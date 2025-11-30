@@ -13,7 +13,7 @@ import time
 import json
 import hashlib
 import requests
-from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple
+from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple, Set
 from duckduckgo_search import DDGS
 
 # Cargar variables de entorno desde config/config.env
@@ -29,6 +29,49 @@ from pathlib import Path
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+CONTACT_TOKEN_REGEX = re.compile(r"[0-9][0-9A-Za-z\s()./-]{2,}")
+
+
+def mask_contact_tokens(text: str, placeholder: str = "[dato de contacto no verificado]") -> str:
+    """Reemplaza teléfonos u otros datos de contacto no verificados."""
+    def _replace(match: re.Match) -> str:
+        token = match.group(0)
+        digits = re.sub(r"\D", "", token)
+        if len(digits) >= 4:
+            return placeholder
+        return token
+
+    return CONTACT_TOKEN_REGEX.sub(_replace, text)
+
+
+def extract_contact_digit_tokens(text: str) -> Set[str]:
+    """Extrae secuencias numéricas (≥4 dígitos) para validar contactos."""
+    allowed = set()
+    if not text:
+        return allowed
+
+    for match in CONTACT_TOKEN_REGEX.finditer(text):
+        digits = re.sub(r"\D", "", match.group(0))
+        if len(digits) >= 4:
+            allowed.add(digits)
+
+    return allowed
+
+
+def restrict_contacts_to_verified(text: str, allowed_digits: Set[str], placeholder: str) -> str:
+    """Permite solo números presentes en allowed_digits, reemplaza el resto."""
+    if not allowed_digits:
+        return mask_contact_tokens(text, placeholder)
+
+    def _replace(match: re.Match) -> str:
+        token = match.group(0)
+        digits = re.sub(r"\D", "", token)
+        if len(digits) >= 4 and digits not in allowed_digits:
+            return placeholder
+        return token
+
+    return CONTACT_TOKEN_REGEX.sub(_replace, text)
 
 # Importaciones de FastAPI
 try:
@@ -990,6 +1033,63 @@ class JudicialBot:
 
         return keywords[:5]  # Top 5 keywords
 
+    def requires_verified_contact_lookup(
+        self,
+        question: str,
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> Tuple[bool, str]:
+        """
+        Detecta si la pregunta (o su contexto reciente) exige datos de contacto
+        o verificación explícita de instituciones. Si es así, se debe forzar
+        la búsqueda web para evitar información inventada.
+        """
+        text_to_scan = question.lower()
+
+        if history:
+            try:
+                user_messages = [
+                    msg.get("content", "")
+                    for msg in history
+                    if isinstance(msg, dict) and msg.get("role") == "user"
+                ]
+                if user_messages:
+                    last_context = " ".join(user_messages[-2:])
+                    text_to_scan += f" {last_context.lower()}"
+            except Exception:
+                pass
+
+        keyword_triggers = [
+            "teléfono", "telefono", "número de teléfono", "numero de telefono",
+            "contacto", "correo", "email", "whatsapp",
+            "dirección", "direccion", "ubicación", "ubicacion",
+            "sede", "oficina", "dónde queda", "donde queda",
+            "horario", "abre", "cierran",
+            "institución", "institucion", "instituciones",
+            "qué institución", "que institucion", "nombre de la institución",
+            "ministerio", "juzgado", "tribunal", "defensoría", "defensoria",
+            "poder judicial", "inamu", "pani", "mtss", "ccss", "oij", "fiscalía", "fiscalia"
+        ]
+
+        for trigger in keyword_triggers:
+            if trigger in text_to_scan:
+                return True, trigger
+
+        regex_triggers = [
+            r"n[uú]mero\s+de\s+tel[eé]fono",
+            r"c[uú]al\s+es\s+el\s+tel[eé]fono",
+            r"c[uú]al\s+es\s+la\s+direcci[oó]n",
+            r"c[uú]al\s+es\s+la\s+instituci[oó]n",
+            r"d[oó]nde\s+queda\s+el\s+juzgado",
+            r"c[oó]mo\s+contacto\s+al",
+            r"nombre\s+del\s+ministerio"
+        ]
+
+        for pattern in regex_triggers:
+            if re.search(pattern, text_to_scan):
+                return True, pattern
+
+        return False, ""
+
     async def ask_async(self, question: str, history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         FLUJO HÍBRIDO REDISEÑADO:
@@ -1005,6 +1105,7 @@ class JudicialBot:
         try:
             # 1. Detectar saludos y consultas simples
             question_lower = question.lower().strip()
+            force_contact_lookup, contact_lookup_reason = self.requires_verified_contact_lookup(question, history)
 
             # NOTA: Saludos, despedidas y preguntas sobre el bot se aprenden desde el modo entrenamiento
             # Las respuestas hardcodeadas fueron eliminadas para que el sistema aprenda de correcciones reales
@@ -1102,16 +1203,21 @@ class JudicialBot:
 
             logger.info(f"📊 Best doc score: {best_score:.1f} - Threshold: {confidence_threshold}")
 
-            # PASO 2.5: Buscar en web SOLO si confianza es baja O usuario menciona ubicación
+            # PASO 2.5: Buscar en web si hace falta verificación adicional
             web_info = ""
             web_sources = []
 
-            if should_search_web or detected_location:
-                if should_search_web:
-                    logger.info("⚠️ Confianza baja - Activando búsqueda web complementaria")
-                else:
-                    logger.info(f"📍 Ubicación detectada ({detected_location}) - Buscando info local")
+            web_search_reasons = []
+            if should_search_web:
+                web_search_reasons.append("confianza baja en documentos")
+            if detected_location:
+                web_search_reasons.append(f"ubicación detectada: {detected_location}")
+            if force_contact_lookup:
+                lookup_reason = contact_lookup_reason or "solicitud explícita de contactos"
+                web_search_reasons.append(f"petición de datos oficiales ({lookup_reason})")
 
+            if should_search_web or detected_location or force_contact_lookup:
+                logger.info("🌐 Activando búsqueda web debido a: " + " | ".join(web_search_reasons))
                 web_info, web_sources = await WebSearchHelper.search_web_info(question, detected_location)
 
             # PASO 3: Comparar y crear contexto híbrido
@@ -1155,17 +1261,49 @@ class JudicialBot:
                     for doc in file_data["docs"]
                 ])
 
+                sanitized_content = combined_content
+                if force_contact_lookup:
+                    sanitized_content = mask_contact_tokens(
+                        combined_content,
+                        "[dato de contacto no verificado - ignorar]"
+                    )
+
                 hybrid_context += f"--- DOCUMENTO LEGAL: {filename} ---\n"
-                hybrid_context += combined_content[:500] + "...\n\n"  # Más breve
+                hybrid_context += sanitized_content[:500] + "...\n\n"  # Más breve
+
+                snippet_preview = (
+                    sanitized_content[:150] + "..."
+                    if force_contact_lookup
+                    else file_data["docs"][0].page_content[:150] + "..."
+                )
 
                 sources.append({
                     "reference_number": web_count + len(sources) - web_count + 1,
                     "filename": filename,
-                    "content": combined_content,
-                    "snippet": file_data["docs"][0].page_content[:150] + "...",
+                    "content": sanitized_content if force_contact_lookup else combined_content,
+                    "snippet": snippet_preview,
                     "source": file_data["metadata"].get("source", "Base de datos legal"),
                     "type": "document"
                 })
+
+            contact_guard_note = ""
+            if force_contact_lookup:
+                if web_info and web_sources:
+                    contact_guard_note = """
+📞 DATOS DE CONTACTO VERIFICADOS (CRÍTICO):
+• El usuario pidió teléfonos, direcciones u oficinas oficiales
+• Usá SOLO la información del bloque "INFORMACIÓN WEB ACTUALIZADA"
+• Aclarales que los datos provienen de una fuente costarricense verificada
+• NO inventes números adicionales ni nuevas instituciones
+"""
+                else:
+                    contact_guard_note = """
+📞 SIN DATOS OFICIALES DISPONIBLES:
+• El usuario pidió teléfonos, direcciones u oficinas oficiales
+• No se encontró información verificada en línea para compartir
+• Decí explícitamente que no tenés un contacto confirmado en este momento
+• NO inventes números ni nombres - sugerí acudir presencialmente al Poder Judicial o usar canales oficiales sin detallar números
+"""
 
             # PASO 4: Generar respuesta BREVE con contexto híbrido
             is_follow_up = history and len(history) > 0
@@ -1307,6 +1445,15 @@ Basa tu respuesta en este contexto. NO inventes información.
 """
                 context_section = conversation_context if conversation_context else ""
 
+            institution_policy_block = """
+🏛️ INSTITUCIONES Y DATOS OFICIALES (CRÍTICO):
+• Mencioná SOLO instituciones costarricenses reales
+• Deben aparecer en el bloque de fuentes legales, en la información web o en la lista del ÁMBITO GEOGRÁFICO
+• Si no tenés certeza del nombre oficial, decí que no contás con ese dato verificado
+• Teléfonos, correos o direcciones deben salir del bloque "INFORMACIÓN WEB ACTUALIZADA" o de los documentos
+• Si no hay datos verificados, dejalo en claro y evitá inventar información
+"""
+
             prompt = f"""🧠 ROL Y PERSONALIDAD:
 Sos un asistente jurídico especializado en Facilitadores Judiciales de Costa Rica, hablando con lenguaje claro, cercano y conversacional.
 Explicás temas legales como si estuvieras conversando frente a frente con alguien que necesita ayuda ☕.
@@ -1333,7 +1480,8 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • SIEMPRE usa lenguaje inclusivo: "juez o jueza", "trabajador o trabajadora", "el usuario o la usuaria"
 • Alterna formas inclusivas naturalmente: "persona trabajadora", "persona profesional en derecho"
 • NUNCA uses solo masculino como genérico
-{learning_context}{sources_section}{context_section}
+{institution_policy_block}
+{learning_context}{sources_section}{contact_guard_note}{context_section}
 🎯 ESTILO DE RESPUESTA (MUY IMPORTANTE):
 • Hablá de forma natural y conversacional - usá "vos", "podés", "te explico"
 • Sé DIRECTO y CONCISO - máximo 350-400 palabras por respuesta
@@ -1391,6 +1539,27 @@ RESPUESTA:"""
             # Generar respuesta
             answer_raw = await self.llm.generate_async(prompt)
             answer = self.clean_answer(answer_raw)
+
+            if force_contact_lookup:
+                if web_info and web_sources:
+                    verified_digits: Set[str] = set()
+                    verified_chunks = [web_info] + [
+                        f"{src.get('title', '')} {src.get('snippet', '')}"
+                        for src in web_sources
+                    ]
+                    for chunk in verified_chunks:
+                        verified_digits |= extract_contact_digit_tokens(chunk)
+
+                    answer = restrict_contacts_to_verified(
+                        answer,
+                        verified_digits,
+                        "[dato de contacto no verificado]"
+                    )
+                else:
+                    answer = mask_contact_tokens(
+                        answer,
+                        "[no tengo un número oficial verificado en este momento]"
+                    )
 
             # PASO 4.5: Validar citas legales (opcional - para logging)
             validation = LegalVerificationHelper.validate_citation(answer)
@@ -2104,7 +2273,7 @@ async def get_document_stats():
                         display_title = filename[:97] + '...'
                     
                     all_files[filename] = {
-                        "filename": filename,
+                            "filename": filename,
                         "display_name": display_title,
                         "category": metadata.get('category', 'documentos_legales') if metadata else 'documentos_legales',
                         "upload_date": 'Base de datos original',
