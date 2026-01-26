@@ -1184,39 +1184,85 @@ class JudicialBot:
 
     async def ask_async(self, question: str, history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        FLUJO HÍBRIDO REDISEÑADO:
-        1) Buscar en internet con keywords
-        2) Comparar con base vectorial
-        3) Generar respuesta híbrida breve
-        4) Adjuntar referencias con links
+        FLUJO HÍBRIDO REDISEÑADO (OPTIMIZADO):
+        Ejecuta búsquedas en paralelo para minimizar latencia.
         """
         start_time = time.time()
         if history is None:
             history = []
 
         try:
-
-
-            # 1. Detectar saludos y consultas simples
             question_lower = question.lower().strip()
+            
+            # --- TAREAS EN PARALELO ---
+            # 1. Detectar si requiere contacto
             force_contact_lookup, contact_lookup_reason = self.requires_verified_contact_lookup(question, history)
+            
+            # 2. Wrapper para TrainingDB
+            def fetch_learned_correction():
+                try:
+                    return training_db.get_learned_correction(question)
+                except Exception as e:
+                    logger.error(f"⚠️ Error en TrainingDB: {e}")
+                    return None
 
-            # NOTA: Saludos, despedidas y preguntas sobre el bot se aprenden desde el modo entrenamiento
-            # Las respuestas hardcodeadas fueron eliminadas para que el sistema aprenda de correcciones reales
+            # 3. Lógica asíncrona para Pinecone
+            async def fetch_documents():
+                search_query = question
+                if history and len(history) > 0 and len(question.split()) < 5:
+                    user_questions = [msg['content'] for msg in history if msg['role'] == 'user']
+                    if user_questions:
+                        search_query = f"{user_questions[-1]} {question}"
+                
+                try:
+                    # Timeout de 5s para evitar hangs
+                    return await asyncio.wait_for(
+                        self.search_documents_async(search_query, k=SEARCH_CONFIG["top_k"]*2), 
+                        timeout=5.0
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Error/Timeout buscando documentos: {e}")
+                    return []
+
+            # 4. Lógica para Web Search preliminar
+            detected_location = None
+            for loc in [
+                "san josé", "cartago", "alajuela", "heredia", "puntarenas",
+                "guanacaste", "limón", "liberia", "pérez zeledón", "desamparados",
+                "escazú", "goicoechea", "san carlos", "limón centro", "nicoya",
+                "turrialba", "grecia", "palmares"
+            ]:
+                if loc in question.lower():
+                    detected_location = loc.title()
+                    break
+
+            async def fetch_web_initial():
+                if detected_location or force_contact_lookup:
+                     return await WebSearchHelper.search_web_info(question, detected_location)
+                return ("", [])
+
+            # --- EJECUCIÓN PARALELA ---
+            logger.info("🚀 Iniciando tareas paralelas...")
+            
+            learned_task = loop.run_in_executor(self.executor, fetch_learned_correction)
+            documents_task = fetch_documents()
+            web_task = fetch_web_initial()
+            
+            learned_correction, relevant_docs, (initial_web_info, initial_web_sources) = await asyncio.gather(
+                learned_task, documents_task, web_task
+            )
+
+            # Lógica antigua eliminada (ahora es paralela)
 
             # ============================================
-            # PASO 0: VERIFICAR CORRECCIONES APRENDIDAS (NUEVO - Aprendizaje en tiempo real)
+            # PROCESAMIENTO DE RESULTADOS PARALELOS
             # ============================================
-            # IMPORTANTE: Las correcciones NO se retornan directamente
-            # Se usan como CONTEXTO DE APRENDIZAJE para que la IA genere respuestas basadas en ejemplos
-            learned_correction = training_db.get_learned_correction(question)
+
+            # 1. Procesar Corrección Aprendida
             learned_context = None
-
             if learned_correction:
                 similarity = learned_correction.get('similarity_score', 1.0)
-                logger.info(f"🎓 Corrección aprendida encontrada: ID={learned_correction['id']}, Similitud={similarity:.3f}, Usado {learned_correction['times_used']} veces")
-
-                # Preparar contexto de aprendizaje (NO retornar directamente)
+                logger.info(f"🎓 Corrección aprendida ID={learned_correction['id']}, Similitud={similarity:.3f}")
                 learned_context = {
                     "id": learned_correction['id'],
                     "question_text": learned_correction['question_text'],
@@ -1229,93 +1275,39 @@ class JudicialBot:
                     "effective_uses": learned_correction.get('effective_uses', 0.0)
                 }
 
-                logger.info(f"📚 Corrección se usará como EJEMPLO DE APRENDIZAJE, no como respuesta hardcodeada")
-
-            # ============================================
-            # PASO 0.5: DETECCIÓN DE AMBIGÜEDAD DESHABILITADA
-            # ============================================
-            # NOTA: Sistema deshabilitado - la IA debe responder directamente
-            # incluso con preguntas cortas o aparentemente ambiguas.
-            # Si necesita más detalles, lo puede preguntar al final de su respuesta.
-            logger.info(f"ℹ️ Detección de ambigüedad deshabilitada - respondiendo directamente")
-
-            # ============================================
-            # NUEVO FLUJO HÍBRIDO
-            # ============================================
-
-            logger.info(f"🔍 Iniciando flujo híbrido para: {question[:50]}...")
-
-            # PASO 1: Extraer keywords y buscar en internet
-            keywords = self.extract_keywords(question)
-            logger.info(f"📌 Keywords extraídas: {keywords}")
-
-            # Construir query de búsqueda web
-            web_query = " ".join(keywords) + " Costa Rica ley derecho"
-
-            # Detectar ubicación
-            detected_location = None
-            for loc in [
-                "san josé", "cartago", "alajuela", "heredia", "puntarenas",
-                "guanacaste", "limón", "liberia", "pérez zeledón", "desamparados",
-                "escazú", "goicoechea", "san carlos", "limón centro", "nicoya",
-                "turrialba", "grecia", "palmares"
-            ]:
-                if loc in question.lower():
-                    detected_location = loc.title()
-                    break
-
-            # PASO 2: Buscar en base vectorial con scoring
-            # Optimización: Reducido k de 4 a 3 para mejorar velocidad (2025-10-24)
+            # 2. Reranking de Documentos
+            reranked_docs_with_scores = self.rerank_documents(question, relevant_docs, top_k=SEARCH_CONFIG["top_k"], return_scores=True)
             
-            # Si es conversación continua y pregunta corta, usar contexto para búsqueda
-            search_query = question
-            if history and len(history) > 0 and len(question.split()) < 5:
-                # Pregunta corta en conversación -> probablemente es clarificación
-                # Usar últimas preguntas del usuario para contexto de búsqueda
-                user_questions = [msg['content'] for msg in history if msg['role'] == 'user']
-                if user_questions:
-                    last_user_question = user_questions[-1]
-                    # Combinar última pregunta real con la actual
-                    search_query = f"{last_user_question} {question}"
-                    logger.info(f"🔍 Búsqueda contextualizada: '{question}' -> '{search_query}'")
-            
-            # MODO PREMIUM: Recuperar MUCHOS documentos para máxima calidad
-            relevant_docs = await self.search_documents_async(search_query, k=SEARCH_CONFIG["top_k"]*2)  # Buscar el doble para tener opciones
-            reranked_docs_with_scores = self.rerank_documents(search_query, relevant_docs, top_k=SEARCH_CONFIG["top_k"], return_scores=True)
-
-            # Extraer documentos, scores y categoría detectada
             detected_category = "general"
+            best_score = 0
+            reranked_docs = []
+
             if reranked_docs_with_scores and isinstance(reranked_docs_with_scores[0], tuple):
                 reranked_docs = [doc for score, doc, category in reranked_docs_with_scores]
-                best_score = reranked_docs_with_scores[0][0] if reranked_docs_with_scores else 0
-                # Capturar categoría detectada del primer documento (mejor match)
+                best_score = reranked_docs_with_scores[0][0]
                 detected_category = reranked_docs_with_scores[0][2] if len(reranked_docs_with_scores[0]) > 2 else "general"
             else:
                 reranked_docs = reranked_docs_with_scores
-                best_score = 0
 
-            # MODO PREMIUM: Threshold más permisivo para no activar búsqueda web innecesariamente
+            # 3. Decisión de Búsqueda Web Fallback
             confidence_threshold = SEARCH_CONFIG["confidence_threshold"]
-            should_search_web = best_score < confidence_threshold
+            should_search_web = (best_score < confidence_threshold) and (not initial_web_info)
+            
+            web_info = initial_web_info
+            web_sources = initial_web_sources
+            
+            logger.info(f"📊 Best Score: {best_score:.1f} (Threshold: {confidence_threshold})")
 
-            logger.info(f"📊 Best doc score: {best_score:.1f} - Threshold: {confidence_threshold}")
-
-            # PASO 2.5: Buscar en web si hace falta verificación adicional
-            web_info = ""
-            web_sources = []
-
-            web_search_reasons = []
+            # Solo buscar web si falló el scoring Y no habiamos buscado antes
             if should_search_web:
-                web_search_reasons.append("confianza baja en documentos")
-            if detected_location:
-                web_search_reasons.append(f"ubicación detectada: {detected_location}")
-            if force_contact_lookup:
-                lookup_reason = contact_lookup_reason or "solicitud explícita de contactos"
-                web_search_reasons.append(f"petición de datos oficiales ({lookup_reason})")
-
-            if should_search_web or detected_location or force_contact_lookup:
-                logger.info("🌐 Activando búsqueda web debido a: " + " | ".join(web_search_reasons))
-                web_info, web_sources = await WebSearchHelper.search_web_info(question, detected_location)
+                logger.info(f"🌐 Low confidence. Activando Web Search Fallback...")
+                try:
+                    web_info, web_sources = await asyncio.wait_for(
+                        WebSearchHelper.search_web_info(question, detected_location),
+                        timeout=4.0
+                    )
+                except Exception:
+                    logger.warning("⚠️ Timeout en Web Search Fallback")
 
             # PASO 3: Comparar y crear contexto híbrido
             hybrid_context = ""
