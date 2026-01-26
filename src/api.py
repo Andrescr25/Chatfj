@@ -114,7 +114,7 @@ except ImportError as e:
 # Importaciones de LangChain & Pinecone
 try:
     from langchain_community.vectorstores import Chroma
-    from langchain_community.vectorstores import Pinecone as PineconeStore
+    from langchain_pinecone import PineconeVectorStore
     # Usa HF Inference API para no gastar RAM
     # Nota: Importamos de community porque langchain_huggingface usa HuggingFaceEndpointEmbeddings
     from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
@@ -721,8 +721,8 @@ class JudicialBot:
                     
                     self.vectordb = await loop.run_in_executor(
                         self.executor,
-                        lambda: PineconeStore(
-                            index, self.embedder.embed_query, "text"
+                        lambda: PineconeVectorStore(
+                            index=index, embedding=self.embedder, text_key="text"
                         )
                     )
                     logger.info("✅ Pinecone Vector Store conectado")

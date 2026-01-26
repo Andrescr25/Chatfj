@@ -11,6 +11,7 @@ langchain-community>=0.0.10
 # Base de datos vectorial
 # Base de datos vectorial
 pinecone>=3.0.0
+langchain-pinecone>=0.0.3
 # chromadb>=0.4.0  # Usar solo para dev local si es necesario
 
 # Backend Cloud & Database
