@@ -1243,6 +1243,7 @@ class JudicialBot:
 
             # --- EJECUCIÓN PARALELA ---
             logger.info("🚀 Iniciando tareas paralelas...")
+            loop = asyncio.get_running_loop()
             
             learned_task = loop.run_in_executor(self.executor, fetch_learned_correction)
             documents_task = fetch_documents()
