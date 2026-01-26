@@ -26,11 +26,17 @@ import threading
 from collections import defaultdict, OrderedDict
 from pathlib import Path
 
+# Importar validador de respuestas y prompts mejorados
+from .utils.response_validator import ResponseValidator
+from .utils.contact_validator import get_validator as get_contact_validator
+from .config.prompts import IMPROVED_SYSTEM_PROMPT
+from .config.constants import SEARCH_CONFIG, LLM_CONFIG
+
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-CONTACT_TOKEN_REGEX = re.compile(r"[0-9][0-9A-Za-z\s()./-]{2,}")
+CONTACT_TOKEN_REGEX = re.compile(r"[0-9][0-9\s()./-]{2,}")
 
 POPULAR_CR_INSTITUTIONS = [
     "Poder Judicial",
@@ -58,7 +64,7 @@ def mask_contact_tokens(text: str, placeholder: str = "[dato de contacto no veri
     def _replace(match: re.Match) -> str:
         token = match.group(0)
         digits = re.sub(r"\D", "", token)
-        if len(digits) >= 4:
+        if len(digits) >= 8 or digits in ["911", "1147", "1189"]:
             return placeholder
         return token
 
@@ -105,14 +111,23 @@ except ImportError as e:
     logger.error(f"Error importando FastAPI: {e}")
     sys.exit(1)
 
-# Importaciones de LangChain
+# Importaciones de LangChain & Pinecone
 try:
     from langchain_community.vectorstores import Chroma
+    from langchain_community.vectorstores import Pinecone as PineconeStore
     from langchain_community.embeddings import SentenceTransformerEmbeddings
     from langchain_core.documents import Document
+    from pinecone import Pinecone as PineconeClient, ServerlessSpec
 except ImportError as e:
-    logger.error(f"Error importando LangChain: {e}")
+    logger.error(f"Error importando LangChain/Pinecone: {e}")
     sys.exit(1)
+
+# Importar Firebase
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore, storage
+except ImportError:
+    logger.warning("⚠️ firebase-admin no instalado. Instalar con: pip install firebase-admin")
 
 # Importar Groq
 try:
@@ -124,12 +139,43 @@ except Exception as e:
 
 # Configuración
 PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma_db")
-print(f"DEBUG: PERSIST_DIR = {PERSIST_DIR}")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
-if not GROQ_API_KEY:
+# Configuración Pinecone
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_ENV = os.getenv("PINECONE_ENV", "us-east-1")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "legal-index")
+
+# Configuración Firebase
+FIREBASE_CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "serviceAccountKey.json")
+
+# Inicializar Firebase
+if not firebase_admin._apps:
+    try:
+        if os.path.exists(FIREBASE_CREDENTIALS_PATH):
+            cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+            firebase_admin.initialize_app(cred, {
+                'storageBucket': os.getenv("FIREBASE_STORAGE_BUCKET")
+            })
+            logger.info("🔥 Firebase Admin inicializado correctamente")
+        else:
+            logger.warning(f"⚠️ No se encontró {FIREBASE_CREDENTIALS_PATH}. Firestore desactivado.")
+    except Exception as e:
+        logger.warning(f"⚠️ No se pudo inicializar Firebase: {e}")
+
+# Configuración de LLM - Groq o OpenRouter
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "moonshotai/kimi-k2-instruct-0905")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4-turbo")
+
+# Validar que al menos una API key esté configurada
+if LLM_PROVIDER == "openrouter" and not OPENROUTER_API_KEY:
+    logger.error("❌ OPENROUTER_API_KEY no está configurada")
+    logger.error("Configura tu API Key en config/config.env o cambia LLM_PROVIDER a 'groq'")
+    sys.exit(1)
+elif LLM_PROVIDER == "groq" and not GROQ_API_KEY:
     logger.error("❌ GROQ_API_KEY no está configurada")
     logger.error("Configura tu API Key en config/config.env")
     sys.exit(1)
@@ -163,87 +209,32 @@ class QueryResponse(BaseModel):
 
 
 class SmartCache:
-    """Cache inteligente con TTL, límite de tamaño y persistencia SQLite (Optimización 2025-10-24)."""
-    def __init__(self, max_size: int = 1000, ttl: int = 3600, db_path: str = "data/cache.db"):
-        self.cache: OrderedDict = OrderedDict()
+    """Cache inteligente con persistencia en Firestore (Stack Gratuito)."""
+    def __init__(self, max_size: int = 1000, ttl: int = 3600):
+        self.cache: OrderedDict = OrderedDict() # Cache en memoria L1
         self.max_size = max_size
         self.ttl = ttl
         self.hits = 0
         self.misses = 0
         self.lock = threading.Lock()
-        self.db_path = db_path
-        self._init_db()
+        self.firestore_db = None
+        self._init_firestore()
 
-    def _init_db(self):
-        """Inicializa base de datos SQLite para persistencia."""
+    def _init_firestore(self):
+        """Inicializa conexión a Firestore."""
         try:
-            import sqlite3
-            import os
-            os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else ".", exist_ok=True)
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cache (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    timestamp REAL NOT NULL
-                )
-            """)
-            conn.commit()
-            conn.close()
-            logger.info(f"✅ Cache persistente inicializado: {self.db_path}")
-
-            # Cargar cache en memoria
-            self._load_from_db()
+            if firebase_admin._apps:
+                self.firestore_db = firestore.client()
+                logger.info("✅ Firestore conectado para Cache L2")
+            else:
+                logger.warning("⚠️ Firebase no inicializado, usando solo memoria.")
         except Exception as e:
-            logger.warning(f"⚠️ No se pudo inicializar cache persistente: {e}")
-
-    def _load_from_db(self):
-        """Carga cache desde DB a memoria."""
-        try:
-            import sqlite3
-            import json
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT key, value, timestamp FROM cache ORDER BY timestamp DESC LIMIT ?", (self.max_size,))
-
-            current_time = time.time()
-            loaded = 0
-            for key, value_json, timestamp in cursor.fetchall():
-                # Solo cargar si no ha expirado
-                if current_time - timestamp < self.ttl:
-                    self.cache[key] = (json.loads(value_json), timestamp)
-                    loaded += 1
-
-            conn.close()
-            if loaded > 0:
-                logger.info(f"📦 Cache cargado desde DB: {loaded} entradas")
-        except Exception as e:
-            logger.warning(f"⚠️ Error cargando cache desde DB: {e}")
-
-    def _save_to_db(self, key: str, value: Dict[str, Any], timestamp: float):
-        """Guarda una entrada en la DB."""
-        try:
-            import sqlite3
-            import json
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO cache (key, value, timestamp) VALUES (?, ?, ?)",
-                (key, json.dumps(value, ensure_ascii=False), timestamp)
-            )
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.warning(f"⚠️ Error guardando en cache DB: {e}")
+            logger.warning(f"⚠️ Error conectando Firestore: {e}")
 
     def get(self, key: str) -> Optional[Dict[str, Any]]:
-        """Obtener valor del cache si existe y no ha expirado."""
+        """Obtener valor del cache (Memoria -> Firestore)."""
         with self.lock:
-            # Primero buscar en memoria
+            # 1. Buscar en memoria (L1)
             if key in self.cache:
                 value, timestamp = self.cache[key]
                 if time.time() - timestamp < self.ttl:
@@ -253,33 +244,29 @@ class SmartCache:
                 else:
                     del self.cache[key]
 
-            # Si no está en memoria, buscar en DB
-            try:
-                import sqlite3
-                import json
-
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT value, timestamp FROM cache WHERE key = ?", (key,))
-                row = cursor.fetchone()
-                conn.close()
-
-                if row:
-                    value_json, timestamp = row
-                    if time.time() - timestamp < self.ttl:
-                        # Restaurar a memoria
-                        value = json.loads(value_json)
-                        self.cache[key] = (value, timestamp)
-                        self.hits += 1
-                        return value
-            except Exception as e:
-                logger.warning(f"⚠️ Error leyendo cache DB: {e}")
+            # 2. Buscar en Firestore (L2)
+            if self.firestore_db:
+                try:
+                    doc_ref = self.firestore_db.collection('cache').document(hashlib.md5(key.encode()).hexdigest())
+                    doc = doc_ref.get()
+                    if doc.exists:
+                        data = doc.to_dict()
+                        timestamp = data.get('timestamp', 0)
+                        
+                        if time.time() - timestamp < self.ttl:
+                            value = json.loads(data.get('value'))
+                            # Restaurar a memoria
+                            self.cache[key] = (value, timestamp)
+                            self.hits += 1
+                            return value
+                except Exception as e:
+                    logger.warning(f"⚠️ Error leyendo Firestore: {e}")
 
             self.misses += 1
             return None
 
     def set(self, key: str, value: Dict[str, Any]) -> None:
-        """Guardar valor en cache (memoria y DB)."""
+        """Guardar valor en cache (Memoria + Firestore)."""
         with self.lock:
             timestamp = time.time()
 
@@ -288,50 +275,36 @@ class SmartCache:
                 self.cache.move_to_end(key)
             self.cache[key] = (value, timestamp)
 
-            # Limitar tamaño del cache en memoria
             if len(self.cache) > self.max_size:
                 self.cache.popitem(last=False)
 
-            # Guardar en DB de forma asíncrona (no bloquear)
-            threading.Thread(target=self._save_to_db, args=(key, value, timestamp), daemon=True).start()
+            # Guardar en Firestore (Async)
+            if self.firestore_db:
+                threading.Thread(target=self._save_to_firestore, args=(key, value, timestamp), daemon=True).start()
+
+    def _save_to_firestore(self, key: str, value: Dict[str, Any], timestamp: float):
+        try:
+            doc_ref = self.firestore_db.collection('cache').document(hashlib.md5(key.encode()).hexdigest())
+            doc_ref.set({
+                'key': key, # Guardar key original por si acaso
+                'value': json.dumps(value, ensure_ascii=False),
+                'timestamp': timestamp,
+                'created_at': firestore.SERVER_TIMESTAMP
+            })
+        except Exception as e:
+            logger.warning(f"⚠️ Error guardando en Firestore: {e}")
 
     def clear(self) -> None:
-        """Limpiar cache."""
         with self.lock:
             self.cache.clear()
-            try:
-                import sqlite3
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM cache")
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                logger.warning(f"⚠️ Error limpiando cache DB: {e}")
-
+            # No borramos Firestore completo por seguridad/costos
+            
     def stats(self) -> Dict[str, Any]:
-        """Estadísticas del cache."""
-        total = self.hits + self.misses
-        hit_rate = (self.hits / total * 100) if total > 0 else 0
-
-        # Contar entradas en DB
-        db_size = 0
-        try:
-            import sqlite3
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM cache")
-            db_size = cursor.fetchone()[0]
-            conn.close()
-        except:
-            pass
-
         return {
-            "size": len(self.cache),
-            "db_size": db_size,
+            "size_memory": len(self.cache),
             "hits": self.hits,
             "misses": self.misses,
-            "hit_rate": f"{hit_rate:.1f}%"
+            "backend": "Firestore" if self.firestore_db else "MemoryOnly"
         }
 
 
@@ -592,18 +565,18 @@ class WebSearchHelper:
 
 
 class GroqLLM:
-    """LLM usando Groq API en la nube - 1-2 segundos por respuesta."""
-    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
+    """LLM usando Groq API en la nube."""
+    def __init__(self, api_key: str, model: str = "openai/gpt-4o-mini"):
         if not api_key:
             raise ValueError("GROQ_API_KEY no está configurada. Obtén una gratis en: https://console.groq.com")
         self.client = Groq(api_key=api_key)
         self.model = model
         self.name = f"Groq {model}"
-    
+
     async def generate_async(self, prompt: str) -> str:
         """Generación asíncrona ultra-rápida con Groq."""
         loop = asyncio.get_event_loop()
-        
+
         def _run() -> str:
             try:
                 completion = self.client.chat.completions.create(
@@ -623,7 +596,62 @@ class GroqLLM:
             except Exception as e:
                 logger.error(f"Error en Groq API: {e}")
                 return f"Lo siento, hubo un error al procesar tu pregunta. Por favor intenta de nuevo."
-        
+
+        return await loop.run_in_executor(None, _run)
+
+
+class OpenRouterLLM:
+    """LLM usando OpenRouter para acceder a GPT-4 y otros modelos."""
+    def __init__(self, api_key: str, model: str = "openai/gpt-4-turbo"):
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY no está configurada. Obtén una en: https://openrouter.ai/keys")
+        self.api_key = api_key
+        self.model = model
+        self.name = f"OpenRouter {model}"
+        self.base_url = "https://openrouter.ai/api/v1"
+
+    async def generate_async(self, prompt: str) -> str:
+        """Generación asíncrona con OpenRouter."""
+        loop = asyncio.get_event_loop()
+
+        def _run() -> str:
+            try:
+                import requests
+
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "HTTP-Referer": "https://facilitadores-judiciales.cr",
+                        "X-Title": "Sistema Facilitadores Judiciales CR",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "temperature": 0.8,
+                        "max_tokens": 2000,
+                        "top_p": 0.95
+                    },
+                    timeout=60
+                )
+
+                if response.status_code != 200:
+                    logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
+                    return f"Lo siento, hubo un error al procesar tu pregunta. Por favor intenta de nuevo."
+
+                result = response.json()
+                return result['choices'][0]['message']['content'].strip()
+
+            except Exception as e:
+                logger.error(f"Error en OpenRouter API: {e}")
+                return f"Lo siento, hubo un error al procesar tu pregunta. Por favor intenta de nuevo."
+
         return await loop.run_in_executor(None, _run)
 
 
@@ -649,14 +677,40 @@ class JudicialBot:
                 lambda: SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL_NAME)
             )
             
-            # Inicializar Groq
-            logger.info(f"🚀 Usando Groq API: {GROQ_MODEL}")
-            self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
+            # Inicializar LLM según proveedor configurado
+            if LLM_PROVIDER == "openrouter":
+                logger.info(f"🚀 Usando OpenRouter API: {OPENROUTER_MODEL}")
+                self.llm = OpenRouterLLM(api_key=OPENROUTER_API_KEY, model=OPENROUTER_MODEL)
+            else:  # groq
+                logger.info(f"🚀 Usando Groq API: {GROQ_MODEL}")
+                self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
 
             # Cargar base de datos vectorial
-            logger.info(f"🔍 Buscando ChromaDB en: {self.persist_dir}")
-            logger.info(f"🔍 Path exists: {os.path.exists(self.persist_dir)}")
-            if os.path.exists(self.persist_dir):
+            if PINECONE_API_KEY and PINECONE_ENV:
+                logger.info(f"🌲 Conectando a Pinecone: {PINECONE_INDEX_NAME}")
+                try:
+                    pc = PineconeClient(api_key=PINECONE_API_KEY)
+                    
+                    # Verificar o crear índice (simplificado para runtime)
+                    # Se asume que migrate_to_pinecone.py ya corrió
+                    if PINECONE_INDEX_NAME not in [i.name for i in pc.list_indexes()]:
+                        logger.warning(f"⚠️ Índice Pinecone {PINECONE_INDEX_NAME} no encontrado. Ejecuta migrate_to_pinecone.py")
+                    
+                    index = pc.Index(PINECONE_INDEX_NAME)
+                    
+                    self.vectordb = await loop.run_in_executor(
+                        self.executor,
+                        lambda: PineconeStore(
+                            index, self.embedder.embed_query, "text"
+                        )
+                    )
+                    logger.info("✅ Pinecone Vector Store conectado")
+                except Exception as e:
+                    logger.error(f"❌ Error conectando Pinecone: {e}")
+            
+            # Fallback a Chroma local si Pinecone falla o no está configurado
+            if not self.vectordb and os.path.exists(self.persist_dir):
+                logger.warning("⚠️ Usando ChromaDB local como fallback")
                 self.vectordb = await loop.run_in_executor(
                     self.executor,
                     lambda: Chroma(
@@ -665,17 +719,12 @@ class JudicialBot:
                         collection_name="legal_documents"
                     )
                 )
-                
-                doc_count = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.vectordb._collection.count()
-                )
-                
-                logger.info(f"✅ Sistema inicializado con {doc_count} documentos")
-            else:
-                logger.warning("⚠️ Base de datos vectorial no encontrada")
             
-            return True
+            if self.vectordb:
+                return True
+            else:
+                logger.error("❌ No se pudo inicializar ninguna Base Vectorial")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Error en inicialización: {e}")
@@ -1125,6 +1174,8 @@ class JudicialBot:
             history = []
 
         try:
+
+
             # 1. Detectar saludos y consultas simples
             question_lower = question.lower().strip()
             force_contact_lookup, contact_lookup_reason = self.requires_verified_contact_lookup(question, history)
@@ -1207,8 +1258,9 @@ class JudicialBot:
                     search_query = f"{last_user_question} {question}"
                     logger.info(f"🔍 Búsqueda contextualizada: '{question}' -> '{search_query}'")
             
-            relevant_docs = await self.search_documents_async(search_query, k=3)
-            reranked_docs_with_scores = self.rerank_documents(search_query, relevant_docs, top_k=2, return_scores=True)
+            # MODO PREMIUM: Recuperar MUCHOS documentos para máxima calidad
+            relevant_docs = await self.search_documents_async(search_query, k=SEARCH_CONFIG["top_k"]*2)  # Buscar el doble para tener opciones
+            reranked_docs_with_scores = self.rerank_documents(search_query, relevant_docs, top_k=SEARCH_CONFIG["top_k"], return_scores=True)
 
             # Extraer documentos, scores y categoría detectada
             detected_category = "general"
@@ -1221,9 +1273,8 @@ class JudicialBot:
                 reranked_docs = reranked_docs_with_scores
                 best_score = 0
 
-            # THRESHOLD: Solo buscar en web si confianza es baja (<65 puntos)
-            # Optimización: Reducido de 70.0 a 65.0 para capturar más casos válidos
-            confidence_threshold = 65.0
+            # MODO PREMIUM: Threshold más permisivo para no activar búsqueda web innecesariamente
+            confidence_threshold = SEARCH_CONFIG["confidence_threshold"]
             should_search_web = best_score < confidence_threshold
 
             logger.info(f"📊 Best doc score: {best_score:.1f} - Threshold: {confidence_threshold}")
@@ -1375,13 +1426,64 @@ Usá esta respuesta como MODELO PRINCIPAL - es exactamente el estilo, tono y niv
                 # Tomar últimos 4 mensajes (2 intercambios completos) con contenido completo
                 recent_history = history[-4:] if len(history) > 4 else history
 
-                # Detectar si es una pregunta de clarificación/seguimiento
+                # Detectar si es una pregunta de clarificación/seguimiento VS pregunta nueva
                 user_last_message = question.lower().strip()
-                is_clarification = any(keyword in user_last_message for keyword in [
+
+                # PASO 1: Verificar si tiene palabras clave de clarificación
+                has_clarification_keywords = any(keyword in user_last_message for keyword in [
                     'sí', 'si', 'como', 'cómo', 'explica', 'explicá', 'detalle', 'más',
                     'dime', 'cuéntame', 'y eso', 'qué es', 'que es', 'continua', 'continuá',
                     'sigue', 'seguí', 'entonces', 'ok', 'vale', 'entiendo'
                 ])
+
+                # PASO 2: Detectar cambio de tema (palabras clave de categorías diferentes)
+                # Categorías legales principales
+                category_keywords = {
+                    "pension_alimentaria": ["pensión", "pension", "alimentaria", "cuota", "manutención", "hijo", "hija", "ex pareja", "incumpl"],
+                    "laboral": ["trabajo", "despido", "despidieron", "jefe", "empleador", "salario", "finiquito", "cesantía", "preaviso", "horas extra"],
+                    "pension_vejez": ["jubil", "vejez", "ccss", "invalidez", "retiro", "adulto mayor"],
+                    "violencia": ["violencia", "maltrato", "golpe", "agresión", "abuso", "protección", "medida"],
+                    "civil": ["desaloj", "arrendamiento", "alquiler", "inquilino", "contrato", "demanda civil"],
+                    "menores": ["pani", "menor", "niño", "niña", "peligro"],
+                    "penal": ["denuncia penal", "delito", "fiscalía", "oij"],
+                    "migracion": ["migra", "extranjero", "visa", "residencia"]
+                }
+
+                # Detectar categoría de la pregunta actual
+                current_categories = set()
+                for category, keywords in category_keywords.items():
+                    if any(kw in user_last_message for kw in keywords):
+                        current_categories.add(category)
+
+                # Detectar categoría de preguntas anteriores del usuario
+                previous_categories = set()
+                user_questions = [msg['content'] for msg in history if msg['role'] == 'user']
+                if user_questions:
+                    last_user_question = user_questions[-1].lower()
+                    for category, keywords in category_keywords.items():
+                        if any(kw in last_user_question for kw in keywords):
+                            previous_categories.add(category)
+
+                # PASO 3: Verificar si es pregunta corta (< 10 palabras)
+                is_short_question = len(user_last_message.split()) < 10
+
+                # PASO 4: Detectar cambio de tema
+                # Si hay categorías detectadas y son diferentes, es un cambio de tema
+                topic_changed = False
+                if current_categories and previous_categories:
+                    # Si no hay intersección entre categorías actuales y previas = cambio de tema
+                    if not current_categories.intersection(previous_categories):
+                        topic_changed = True
+                        logger.info(f"🔄 CAMBIO DE TEMA DETECTADO: {previous_categories} -> {current_categories}")
+
+                # DECISIÓN FINAL: Es clarificación SOLO si:
+                # 1. Tiene keywords de clarificación Y
+                # 2. Es pregunta corta Y
+                # 3. NO hubo cambio de tema
+                is_clarification = has_clarification_keywords and is_short_question and not topic_changed
+
+                if topic_changed:
+                    logger.info(f"✅ Nueva consulta detectada (cambio de tema) - Usando fuentes legales")
 
                 conversation_context = "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 conversation_context += "💬 CONTEXTO DE CONVERSACIÓN CONTINUA\n"
@@ -1447,11 +1549,8 @@ Usá esta respuesta como MODELO PRINCIPAL - es exactamente el estilo, tono y niv
                 conversation_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
             # Detectar si es clarificación para reordenar el prompt
-            is_clarification_detected = is_follow_up and any(keyword in question.lower().strip() for keyword in [
-                'sí', 'si', 'como', 'cómo', 'explica', 'explicá', 'detalle', 'más',
-                'dime', 'cuéntame', 'y eso', 'qué es', 'que es', 'continua', 'continuá',
-                'sigue', 'seguí', 'entonces', 'ok', 'vale', 'entiendo'
-            ])
+            # Reutilizar la variable is_clarification calculada arriba (que ya tiene la lógica mejorada)
+            is_clarification_detected = is_follow_up and is_clarification
 
             # Para clarificaciones: SOLO contexto conversacional (NO usar fuentes legales)
             # Para preguntas normales: orden estándar
@@ -1505,6 +1604,7 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • SOLO mencioná instituciones, leyes, y procedimientos de COSTA RICA
 • Si no tenés información específica de Costa Rica, decilo claramente
 • NUNCA inventes o asumas que leyes de otros países aplican en Costa Rica
+
 • EJEMPLOS DE INSTITUCIONES COSTARRICENSES VÁLIDAS:
   ✅ Juzgados de Costa Rica (Violencia Doméstica, Familia, Trabajo, etc.)
   ✅ Ministerio de Trabajo y Seguridad Social (MTSS)
@@ -1513,6 +1613,26 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
   ✅ Caja Costarricense de Seguro Social (CCSS)
   ✅ Defensoría de los Habitantes
   ✅ Defensa Pública
+
+• ⚠️ INFORMACIÓN CRÍTICA SOBRE DEFENSA PÚBLICA (EVITAR ERRORES COMUNES):
+  ✅ La Defensa Pública SÍ brinda representación legal GRATUITA en:
+     → Materia PENAL (cuando te acusan de un delito)
+     → Materia LABORAL (conflictos con empleadores)
+     → Pensión ALIMENTARIA (cuando necesitás cobrar o defender pensión)
+     → Materia AGRARIA (conflictos sobre tierras)
+  ❌ La Defensa Pública NO atiende otras materias (civil, familia general, migratorio, etc.)
+
+  ⚠️⚠️ NOMBRE CORRECTO: Se llama "Defensa Pública" (NO "Defensoría Pública")
+  ❌ NUNCA uses el término "Defensoría Pública" - esa institución NO EXISTE en Costa Rica
+  ✅ SIEMPRE usa: "Defensa Pública"
+
+• ⚠️ INFORMACIÓN CRÍTICA SOBRE DEFENSORÍA DE LOS HABITANTES (EVITAR ERRORES COMUNES):
+  ✅ La Defensoría de los Habitantes es una institución de FISCALIZACIÓN y PROTECCIÓN DE DERECHOS
+  ✅ SÍ puede: Recibir quejas contra instituciones públicas, investigar, recomendar acciones
+  ❌ La Defensoría NO brinda acompañamiento legal durante procesos judiciales
+  ❌ La Defensoría NO da representación legal en tribunales
+  ❌ NO digas que "ofrece asistencia jurídica gratuita y acompañamiento durante el proceso"
+
 • ❌ NO menciones instituciones de otros países (México, España, Argentina, etc.)
 • ❌ NO cites leyes que no sean de Costa Rica
 • Si la base de conocimiento no tiene información específica de Costa Rica sobre el tema, decilo honestamente
@@ -1578,11 +1698,92 @@ Tu objetivo es ser PRÁCTICO, DIRECTO y EMPÁTICO - el usuario necesita ayuda co
 • Mantené la conversación natural y fluida
 • Terminá con algo útil para el usuario, NO con referencias o notas
 
+🛡️ GUARDIA LEGAL (REGLAS DE ORO - PRIORIDAD MÁXIMA):
+⚠️ ADVERTENCIA: Si fallas en estas reglas, la respuesta legal será INCORRECTA y PELIGROSA.
+
+1. 🚫 PROHIBICIÓN ABSOLUTA: CÁLCULO SEMANAL DE HORAS EXTRA
+   ❌ NUNCA digas: "Las horas extra se calculan por semana" o "Solo si pasas de 48 horas hay extra".
+   ❌ NUNCA calcules el total semanal para determinar si hay extras (ej: 50h - 48h = 2h extra -> ESTO ESTÁ MAL).
+   ✅ LA REGLA DE ORO DE CR: La hora extra nace al exceder la jornada DIARIA.
+      • Jornada Diurna (6am-7pm): Máximo 8 horas/día.
+      • Si trabaja 9 horas efectivas un lunes -> ¡Tiene 1 hora extra ESE día! (Aunque falte trabajo en la semana).
+   ✅ CÁLCULO CORRECTO:
+      • Restá la hora de almuerzo de la jornada total (Ej: 7am a 5pm = 10h, menos 1h comida = 9h efectivas).
+      • Compará con el límite diario (8h).
+      • El exceso diario es hora extra. (9h - 8h = 1h extra diaria).
+      • Multiplicá por los días trabajados (1h x 5 días = 5h extra semanales).
+
+2. 👔 CONCEPTO DE "EMPLEADO DE CONFIANZA":
+   • ❌ EVITÁ decir solo: "Aplica a gerentes".
+   • ✅ EXPLICÁ: "No depende del título del puesto, sino de si tenés poder de decisión real, fiscalización superior y representás al patrono".
+   • Si no cumplen esos requisitos estrictos, tienen derecho a horas extra aunque les llamen "de confianza".
+
+3. ⚖️ TONO PRUDENTE (NO SENTENCIAR):
+   • ❌ PROHIBIDO DECIR: "Tu jefe NO tiene razón", "Es ilegal", "Están violando la ley".
+   • ✅ USÁ: "En principio, esto no parece correcto", "Según lo que indicás, podrías tener derecho...", "La ley establece que...".
+   • Tu rol es orientar, no ser un juez. Nunca tenemos el expediente completo.
+
+4. 🚫 CERO DATOS INVENTADOS:
+   • Si no tenés un dato, explicá el cálculo teórico.
+   • NUNCA uses placeholders como "[dato no verificado]" en el texto narrativo.
+
+5. 🏠 PENSIÓN ALIMENTARIA (CRÍTICO - PRIORIDAD TOTAL):
+   • ⚠️ PROHIBICIÓN ABSOLUTA: "NUEVA LEY" o "REFORMA RECIENTE". El Código Procesal no es "nuevo" para efectos de apremio. NUNCA lo menciones como novedad.
+   • ⚠️ PROHIBICIÓN ABSOLUTA: "AUTOMÁTICO". El apremio NO es automático.
+   • ✅ ESTRUCTURA DE RESPUESTA OBLIGATORIA (COPIÁ ESTE FORMATAJE):
+      "⚖️ Mi ex no paga pensión, ¿qué puedo hacer?
+      
+      Entiendo lo difícil que es esta situación 😔. En Costa Rica existen mecanismos legales para exigir el pago.
+      
+      📌 Incumplimiento
+      Si existe una orden judicial y el pago no se realiza en la fecha indicada, podés informar el incumplimiento al juzgado.
+      
+      📌 Opciones legales
+      1️⃣ Defensa Pública (Gratuita): Brinda asesoría en pensión alimentaria.
+      2️⃣ Medidas de cobro: El juez puede ordenar rebajo de salario o embargo.
+      3️⃣ Apremio corporal: En casos de incumplimiento, el juez PUEDE valorar la aplicación de apremio corporal, siempre mediante orden judicial y respetando el debido proceso (NO es automático).
+      
+      📌 Importante
+      Las medidas dependen del tipo de pensión y de la resolución vigente."
+
+
+   • ❌ ERROR GRAVE COMÚN: "No existen días de gracia".
+     -> CORRECCIÓN: "Si no paga en la fecha indicada, se considera incumplimiento." (Suave, no agresivo).
+   • ❌ ERROR GRAVE COMÚN: "Pedir apremio y va a la cárcel".
+     -> CORRECCIÓN: "Podés solicitarlo, pero el Juez debe aprobarlo analizando el caso."
+   • ❌ CONFUSIÓN TÉCNICA: "Apremio = Embargo".
+     -> CORRECCIÓN: SON COSAS DISTINTAS. Embargo es sobre bienes/salario. Apremio Corporal es detención física. NUNCA los mezcles.
+
+   🛡️ RESOLUCIÓN DE CONFLICTOS DE FUENTES (REGLA MAESTRA):
+   • Si los documentos mencionan "Código Procesal de Familia" o "Nuevo Procedimiento", IGNORÁ esa mención para efectos de apremio.
+   • Aunque el texto recuperado diga "con el nuevo código", vos NO debés repetirlo. Mantené la respuesta en el procedimiento estándar consolidado.
+   • Tu "Conocimiento Legal Base" (estas reglas) tiene PRIORIDAD sobre fragmentos de documentos que parezcan sugerir leyes nuevas o automáticas.
+
+6. 🇨🇷 SOLO LEY DE COSTA RICA:
+   • Ignora conocimiento de leyes de México, España o Latam general.
+   • En CR, la jornada ordinaria acumulativa (L-V) permite trabajar hasta 10h al día SIN extras SOLO SI NO SE PASAN las 48h semanales.
+   • PERO: Si el contrato dice 8h, o no hay acuerdo escrito de jornada acumulativa, rige el límite de 8h.
+   • ANTE LA DUDA (como en este caso): Asumí el límite diario de 8h como base de cálculo explicativo.
+
+⚖️ REGLAS ESTRICTAS DE PRECISIÓN (MÁXIMA PRIORIDAD):
+• NUNCA inventes información - Si no está en los documentos proporcionados, decilo claramente
+• SI LOS DOCUMENTOS CONTIENEN INFORMACIÓN CONTRADICTORIA (ej: "nuevo código" vs tus reglas), OBEDECÉ TUS REGLAS DE GUARDIA LEGAL.
+• SIEMPRE basate SOLO en la información de los documentos del contexto, SALVO cuando violen la Guardia Legal.
+• Indica nivel de certeza: usa frases como "según los documentos" o "no encuentro información específica sobre"
+• Priorizá PRECISIÓN sobre extensión - Mejor una respuesta corta y correcta que larga e imprecisa
+• Si no sabés algo, sé honesto: "No encuentro información específica sobre esto en los documentos"
+• NO des información de contacto no verificada
+• NO asumas leyes o procedimientos sin fuente clara en el contexto
+
 ❓ PREGUNTA DEL USUARIO: {question}
 
 💬 RESPONDÉ como si estuvieras hablando con un amigo o amiga que necesita orientación legal. Sé claro, práctico y cercano.
 
 RESPUESTA:"""
+
+
+            # DEBUG: Imprimir prompt exacto para depuración legal
+            logger.info(f"🛑 DEBUG PROMPT SENT TO LLM:\n{prompt}")
 
             # Generar respuesta
             answer_raw = await self.llm.generate_async(prompt)
@@ -1632,11 +1833,41 @@ RESPUESTA:"""
             # PASO 5: Respuesta final sin referencias adicionales
             final_answer = answer
 
+            # Validar respuesta con el ResponseValidator
+            is_valid, improved_answer, validation_metadata = ResponseValidator.validate_response(
+                question=question,
+                answer=final_answer,
+                sources=sources,
+                min_confidence=0.7
+            )
+
+            # Si la respuesta no es válida, usar la versión mejorada
+            if not is_valid:
+                logger.warning(f"⚠️ Respuesta de baja confianza: {validation_metadata}")
+                final_answer = improved_answer
+
+            # VALIDACIÓN DE CONTACTOS - CRÍTICO
+            # Sanitizar respuesta para eliminar contactos NO verificados
+            contact_validator = get_contact_validator()
+            sanitized_answer, contact_warnings = contact_validator.sanitize_response(final_answer)
+
+            if contact_warnings:
+                logger.warning(f"⚠️ CONTACTOS NO VERIFICADOS REMOVIDOS:")
+                for warning in contact_warnings:
+                    logger.warning(f"   {warning}")
+                final_answer = sanitized_answer
+
             response = {
                 "answer": final_answer,
                 "sources": sources,
                 "processing_time": time.time() - start_time,
-                "cached": False
+                "cached": False,
+                "validation": {
+                    "confidence": validation_metadata.get("confidence", 0.0),
+                    "is_valid": is_valid,
+                    "warnings": validation_metadata.get("warnings", []),
+                    "has_legal_reference": validation_metadata.get("has_legal_reference", False)
+                }
             }
 
             # Si se usó corrección aprendida, agregar metadata y marcar como usada
@@ -1654,8 +1885,7 @@ RESPUESTA:"""
                     f"📊 Corrección {learned_context['id']} usada "
                     f"(similitud: {learned_context['similarity_score']:.1%}, usage_id={usage_id})"
                 )
-
-            self.cache.set(question, response)
+            
             logger.info(f"✅ Respuesta híbrida generada en {response['processing_time']:.3f}s")
             return response
 
@@ -1826,7 +2056,7 @@ async def clear_cache():
 # ENDPOINTS DE MODO ENTRENAMIENTO
 # ============================================
 
-from src.training_db import TrainingDatabase
+from .training_db import TrainingDatabase
 from pydantic import BaseModel
 
 # Instancia global de base de datos de entrenamiento
@@ -2473,7 +2703,7 @@ async def get_document_content(filename: str):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "api:app",
+        "src.api:app",
         host="0.0.0.0",
         port=8000,
         reload=False,

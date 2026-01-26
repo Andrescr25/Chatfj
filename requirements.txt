@@ -9,7 +9,12 @@ langchain>=0.1.0
 langchain-community>=0.0.10
 
 # Base de datos vectorial
-chromadb>=0.4.0
+# Base de datos vectorial
+pinecone-client>=3.0.0
+# chromadb>=0.4.0  # Usar solo para dev local si es necesario
+
+# Backend Cloud & Database
+firebase-admin>=6.4.0
 
 # Embeddings
 sentence-transformers>=2.2.2

@@ -58,3 +58,4 @@ data/docs/*.pdf
 .pytest_cache/
 .coverage
 htmlcov/
+chatfj-26458-firebase-adminsdk-fbsvc-f50c7baf30.json

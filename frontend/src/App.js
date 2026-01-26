@@ -22,7 +22,10 @@ function App() {
     return localStorage.getItem('theme') || 'light';
   });
   const messagesEndRef = useRef(null);
-  // Usar rutas relativas para que funcione con el proxy y con ngrok
+
+  // Configuración de API URL
+  // Para desarrollo local: usa proxy (ruta vacía "")
+  // Para producción/Ngrok: usa http://localhost:8000 directo
   const API_URL = process.env.REACT_APP_API_URL || '';
 
   const currentConv = conversations.find(c => c.id === currentConvId);
