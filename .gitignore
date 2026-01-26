@@ -60,3 +60,5 @@ data/docs/*.pdf
 htmlcov/
 chatfj-26458-firebase-adminsdk-fbsvc-f50c7baf30.json
 config/*.json
+.firebase/
+frontend/.firebase/
