@@ -11,7 +11,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import logging
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer  <-- REMOVIDO PARA AHORRAR RAM
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
@@ -44,23 +46,56 @@ class TrainingDatabase:
 
     def __init__(self, db_path: str = "data/training.db"):
         self.db_path = db_path
-        self._embedder: Optional[SentenceTransformer] = None
+        self._embedder: Any = None  # Generic type to support HF adapter
         self._init_db()
 
     # ------------------------------------------------------------------
     # Helpers internos
     # ------------------------------------------------------------------
-    def _get_embedder(self) -> SentenceTransformer:
-        """Carga perezosamente el modelo de embeddings usado para aprendizaje."""
+    def _get_embedder(self):
+        """Carga el modelo de embeddings (Adaptado para API HF para uso ligero)."""
         if self._embedder is None:
-            model_name = os.getenv("LEARNING_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-            logger.info(f"🔤 Cargando modelo de embeddings para aprendizaje: {model_name}")
-            self._embedder = SentenceTransformer(model_name)
+            # Usar la misma configuración que en api.py
+            api_key = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+            if not api_key:
+                logger.warning("⚠️ No HUGGINGFACEHUB_API_TOKEN found. Training embeddings will fail.")
+                return None
+                
+            model_name = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
+            logger.info(f"🔤 Cargando adaptador de embeddings API HF: {model_name}")
+            
+            # Adaptador simple para que se comporte como SentenceTransformer.encode
+            class HFAdapter:
+                def __init__(self, key, model):
+                    self.client = HuggingFaceInferenceAPIEmbeddings(
+                        api_key=key,
+                        model_name=model
+                    )
+                
+                def encode(self, texts):
+                    # api.py usa embed_query para un texto, embed_documents para lista
+                    # TrainingDB pasa [text] (lista de 1) usualmente
+                    if isinstance(texts, str):
+                        texts = [texts]
+                    
+                    embeddings = self.client.embed_documents(texts)
+                    # Convertir a numpy array para compatibilidad
+                    return np.array(embeddings)
+
+            self._embedder = HFAdapter(api_key, model_name)
+            
         return self._embedder
 
     def _encode_vector(self, text: str) -> np.ndarray:
         """Retorna el vector de embeddings en formato numpy."""
-        return self._get_embedder().encode([text or ""])[0].astype(np.float32)
+        embedder = self._get_embedder()
+        if not embedder:
+            # Fallback seguro si no hay API Token (vector de ceros)
+            return np.zeros(384, dtype=np.float32)
+            
+        # El adaptador devuelve np.array de shape (N, 384)
+        vectors = embedder.encode([text or ""])
+        return vectors[0].astype(np.float32)
 
     def _encode_embedding(self, text: str) -> bytes:
         """Genera el embedding en formato binario listo para SQLite."""
