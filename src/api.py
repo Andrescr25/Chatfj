@@ -116,7 +116,8 @@ try:
     from langchain_community.vectorstores import Chroma
     from langchain_community.vectorstores import Pinecone as PineconeStore
     # Usa HF Inference API para no gastar RAM
-    from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
+    # Nota: Importamos de community porque langchain_huggingface usa HuggingFaceEndpointEmbeddings
+    from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
     from langchain_core.documents import Document
     from pinecone import Pinecone as PineconeClient, ServerlessSpec
 except ImportError as e:
