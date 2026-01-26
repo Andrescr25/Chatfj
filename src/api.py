@@ -2379,7 +2379,7 @@ async def get_correction_stats():
 # ============================================
 
 from fastapi import UploadFile, File
-import PyPDF2
+import pypdf
 import io
 
 @app.post("/training/upload-document")
@@ -2406,7 +2406,7 @@ async def upload_document(file: UploadFile = File(...), category: str = "general
         if file_ext == '.pdf':
             # Procesar PDF
             pdf_file = io.BytesIO(content_bytes)
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            pdf_reader = pypdf.PdfReader(pdf_file)
 
             text_content = ""
             for page_num, page in enumerate(pdf_reader.pages):
