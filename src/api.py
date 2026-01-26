@@ -115,7 +115,8 @@ except ImportError as e:
 try:
     from langchain_community.vectorstores import Chroma
     from langchain_community.vectorstores import Pinecone as PineconeStore
-    from langchain_community.embeddings import SentenceTransformerEmbeddings
+    # Usa HF Inference API para no gastar RAM
+    from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
     from langchain_core.documents import Document
     from pinecone import Pinecone as PineconeClient, ServerlessSpec
 except ImportError as e:
@@ -670,12 +671,31 @@ class JudicialBot:
         try:
             logger.info("🚀 Inicializando sistema...")
             
-            # Cargar embeddings
+            # Cargar embeddings (API o Local)
+            # Prioridad: HuggingFace API (Ahorra RAM) -> Local (Dev)
+            HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+            
             loop = asyncio.get_event_loop()
-            self.embedder = await loop.run_in_executor(
-                self.executor, 
-                lambda: SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-            )
+            
+            if HF_TOKEN:
+                 logger.info("☁️ Usando HuggingFace Inference API para embeddings (Zero-RAM)")
+                 # Usar mismo modelo que teniamos: paraphrase-multilingual-mpnet-base-v2
+                 self.embedder = HuggingFaceInferenceAPIEmbeddings(
+                     api_key=HF_TOKEN,
+                     model_name=EMBEDDING_MODEL_NAME
+                 )
+            else:
+                 logger.warning("⚠️ HUGGINGFACEHUB_API_TOKEN no encontrado. Usando embeddings locales (Alto consumo de RAM)")
+                 # Fallback a local (necesita sentence-transformers instalado)
+                 try:
+                     from langchain_community.embeddings import SentenceTransformerEmbeddings
+                     self.embedder = await loop.run_in_executor(
+                         self.executor, 
+                         lambda: SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+                     )
+                 except ImportError:
+                     logger.error("❌ sentence-transformers no instalado y no hay API Token. El sistema fallará.")
+                     return False
             
             # Inicializar LLM según proveedor configurado
             if LLM_PROVIDER == "openrouter":

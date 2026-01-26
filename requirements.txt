@@ -16,9 +16,10 @@ pinecone>=3.0.0
 # Backend Cloud & Database
 firebase-admin>=6.4.0
 
-# Embeddings
-sentence-transformers>=2.2.2
-transformers>=4.30.0
+# Embeddings (API - Ahorra RAM en Render)
+langchain-huggingface>=0.0.3
+# sentence-transformers>=2.2.2 # Comentado para ahorrar RAM en cloud
+# transformers>=4.30.0
 
 # API web
 fastapi>=0.104.0
