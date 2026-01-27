@@ -1,0 +1,17 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *' # Cada 14 minutos (Render duerme a los 15)
+  workflow_dispatch: # Permite ejecutar manualmente desde GitHub Actions
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Helper
+        run: |
+          echo "Pinging..."
+          # Usamos curl para hacer una petición HEAD ligera al endpoint de salud
+          curl -I https://chatfj-m63k.onrender.com/health
+          echo "Done."
