@@ -20,8 +20,10 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
     Maneja el estado 'Model Loading' y errores 503 automáticamente.
     """
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        # URL de la API (Actualizada 2026: router.huggingface.co)
-        api_url = f"https://router.huggingface.co/models/{self.model_name}"
+        # URL oficial de la Inference API (Standard)
+        # Evitamos 'pipeline/feature-extraction' que da 410 Gone.
+        # Evitamos 'router.huggingface.co' que da 404 en path por defecto.
+        api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         # Payload con opción wait_for_model
