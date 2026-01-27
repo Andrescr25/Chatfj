@@ -31,7 +31,11 @@ app.add_middleware(
 )
 
 # Include API Router
-app.include_router(api_router)
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+@app.get("/")
+def read_root():
+    return {"status": "online", "project": "ChatFJ API", "docs": "/docs"}
 
 # Static Files (for favicon, or simple serving if needed)
 # Ensure directory exists or this might fail. Making optional or creating dir.
