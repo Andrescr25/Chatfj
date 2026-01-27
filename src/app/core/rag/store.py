@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import traceback
 from typing import List, Any
 try:
     from pinecone import Pinecone as PineconeClient
@@ -53,5 +54,9 @@ class VectorStoreService:
             )
             return results
         except Exception as e:
-            logger.error(f"❌ Error buscando en Pinecone: {e}")
+            error_details = traceback.format_exc()
+            logger.error(f"❌ Error buscando en Pinecone: {e}\nTraceback COMPLETO:\n{error_details}")
+            # Si el error es "0", es muy probable que sea un problema de subproceso o memoria
+            if str(e).strip() == "0":
+                logger.critical("🚨 ERROR CRÍTICO '0' CONSTANTE: Posible fallo de memoria en EmbeddingService o librería C++ subyacente.")
             return []

@@ -4,6 +4,7 @@ import sqlite3
 import json
 import logging
 import math
+import traceback
 import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -163,8 +164,12 @@ class TrainingService:
                     
             return None
             
+            
         except Exception as e:
-            logger.error(f"Error buscando corrección aprendida: {e}")
+            error_details = traceback.format_exc()
+            logger.error(f"❌ Error buscando corrección aprendida: {e}\nTraceback COMPLETO:\n{error_details}")
+            if str(e).strip() == "0":
+                logger.critical("🚨 ERROR CRÍTICO '0' CONSTANTE en TrainingService: Posible fallo de memoria.")
             return None
 
     def log_feedback(self, question: str, feedback: str, rating: int):

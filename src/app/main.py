@@ -14,6 +14,20 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Startup Checks
+@app.on_event("startup")
+async def startup_event():
+    logger.info("🚀 Iniciando ChatFJ API...")
+    if not settings.PINECONE_API_KEY:
+        logger.warning("⚠️ PINECONE_API_KEY no encontrada. La búsqueda vectorial fallará.")
+    else:
+        logger.info(f"✅ PINECONE_API_KEY detectada (Index: {settings.PINECONE_INDEX_NAME})")
+        
+    if not settings.HUGGINGFACEHUB_API_TOKEN:
+        logger.critical("🚨 HUGGINGFACEHUB_API_TOKEN no encontrada. El sistema intentará usar modelos locales y podría quedarse sin RAM (Error '0').")
+    else:
+        logger.info("✅ HUGGINGFACEHUB_API_TOKEN detectada.")
+
 # CORS Configuration
 origins = [
     "http://localhost:3000",
