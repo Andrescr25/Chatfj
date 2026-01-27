@@ -27,7 +27,6 @@ class GroqLLM(BaseLLM):
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
-                    messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     max_tokens=2000,
                     top_p=0.9,
@@ -64,11 +63,11 @@ class OpenRouterLLM(BaseLLM):
                     },
                     json={
                         "model": self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=2000,
-                    top_p=0.9,
-                    stream=False
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 2000,
+                        "top_p": 0.9,
+                        "stream": False
                     },
                     timeout=60
                 )
