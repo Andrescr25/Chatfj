@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "Chat Facilitadores Judiciales"
     DEBUG: bool = False
+    API_V1_STR: str = "/api/v1"
+
     
     # Paths
     PERSIST_DIR: str = "data/chroma_db"
