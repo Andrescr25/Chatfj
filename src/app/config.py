@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "openai/gpt-4-turbo"
     
     # RAG / Embeddings
-    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
     HUGGINGFACEHUB_API_TOKEN: Optional[str] = None
     
     # Pinecone
