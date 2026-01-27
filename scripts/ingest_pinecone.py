@@ -7,7 +7,7 @@ Usa la misma configuración de Embeddings que el backend para asegurar compatibi
 
 Requisitos:
 - PINECONE_API_KEY
-- HUGGINGFACEHUB_API_TOKEN
+- HUGGINGFACEHUB_API_TOKEN (Opcional, usa local si falta)
 """
 
 import os
@@ -24,20 +24,30 @@ logger = logging.getLogger(__name__)
 
 # Intentar importar dependencias
 try:
-    from dotenv import load_dotenv
-    load_dotenv() # Cargar .env si existe localmente
+    from dotenv import load_dotenv, find_dotenv
+    # Load from config/config.env explicitly first, then .env
+    load_dotenv("config/config.env") 
+    load_dotenv(find_dotenv())
     
     from langchain_community.document_loaders import (
         TextLoader, PyPDFLoader, DirectoryLoader
     )
     from langchain_text_splitters import RecursiveCharacterTextSplitter
-    from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
+    
+    # Try import fallback
+    try:
+        from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
+    except ImportError:
+        from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+
+    from langchain_community.embeddings import SentenceTransformerEmbeddings
+        
     from langchain_pinecone import PineconeVectorStore
     from pinecone import Pinecone
     from langchain_core.documents import Document
 except ImportError as e:
     logger.error(f"❌ Error importando dependencias: {e}")
-    logger.error("Ejecuta: pip install langchain-pinecone pinecone-client langchain-huggingface python-dotenv pypdf")
+    logger.error("Ejecuta: pip install langchain-pinecone pinecone-client langchain-huggingface python-dotenv pypdf sentence-transformers")
     sys.exit(1)
 
 # Configuración
@@ -45,15 +55,14 @@ DATA_DIR = os.getenv("DATA_DIR", "./data/docs")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "chatfj-legal-index")
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 
 def validate_env():
     if not PINECONE_API_KEY:
-        logger.error("❌ PINECONE_API_KEY no encontrada en variables de entorno.")
+        logger.error("❌ PINECONE_API_KEY no encontrada en variables de entorno (ni en config/config.env).")
         return False
     if not HF_TOKEN:
-        logger.error("❌ HUGGINGFACEHUB_API_TOKEN no encontrada. Necesaria para generar embeddings compatibles.")
-        return False
+        logger.warning("⚠️ HUGGINGFACEHUB_API_TOKEN no encontrada. Usaremos modelo LOCAL (descargando ~400MB).")
     return True
 
 def load_documents(data_dir: str) -> List[Document]:
@@ -116,11 +125,19 @@ def ingest_to_pinecone(chunks: List[Document]):
     logger.info("📡 Conectando a servicios de Embedding y Vector DB...")
     
     try:
-        # Embeddings via API (Zero RAM usage locally)
-        embeddings = HuggingFaceInferenceAPIEmbeddings(
-            api_key=HF_TOKEN,
-            model_name=EMBEDDING_MODEL
-        )
+        embeddings = None
+        if HF_TOKEN:
+            # Embeddings via API (Zero RAM usage locally)
+            logger.info("☁️ Usando HuggingFace API para embeddings...")
+            embeddings = HuggingFaceInferenceAPIEmbeddings(
+                api_key=HF_TOKEN,
+                model_name=EMBEDDING_MODEL
+            )
+        else:
+            # Fallback to Local Model
+            logger.info(f"💻 Usando modelo LOCAL: {EMBEDDING_MODEL}")
+            embeddings = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
+
         
         # Test Embeddings
         logger.info("🧪 Probando generación de embeddings...")

@@ -45,22 +45,26 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
                     continue
                 
                 if response.status_code != 200:
-                    logger.error(f"❌ Error API HF ({response.status_code}): {response.text}")
+                    logger.error(f"❌ Error API HF ({response.status_code}): {response.text[:500]}") # Log first 500 chars
+                    logger.warning(f"🔍 Headers de respuesta: {response.headers}")
                     return []
 
                 result = response.json()
+                
                 # Validación de formato (debe ser lista de listas)
                 if isinstance(result, list) and len(result) > 0:
                      # A veces devuelve [ [[...]] ] (nested) o directamente [[...]]
                     if isinstance(result[0], list):
-                        if isinstance(result[0][0], list): # Extra nest
-                            return result[0]
+                        if isinstance(result[0][0], list): # Extra nest: [ [[...]] ]
+                             logger.warning(f"⚠️ Estructura anidada extra detectada: tipo {type(result[0][0])}")
+                             return result[0]
                         return result
                     # Si es lista plana (un solo doc), encapsular
                     if isinstance(result[0], float):
                         return [result]
                     
-                logger.error(f"❌ Formato inesperado de API: {result}")
+                logger.error(f"❌ Formato inesperado de API. Tipo de respuesta: {type(result)}")
+                logger.error(f"🔍 Contenido crudo (truncado): {str(result)[:500]}")
                 return []
                 
             except Exception as e:
