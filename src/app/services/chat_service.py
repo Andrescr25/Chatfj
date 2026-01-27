@@ -140,11 +140,18 @@ class ChatService:
         doc_sources = []
         
         for doc, score in relevant_docs:
-            if score > 0.40: # Umbral de relevancia
+            # Umbral de relevancia más estricto para evitar ruido
+            if score > 0.50: 
                 content = doc.page_content
                 source = doc.metadata.get('source', 'Documento Interno')
-                final_docs_content.append(content)
-                doc_sources.append({"title": "Guía Legal", "snippet": content[:100], "score": score})
+                final_docs_content.append(f"Fuente: {source}\nContenido: {content}")
+                doc_sources.append({"title": source, "snippet": content[:150], "score": score})
+        
+        # Log retrieved evidence for debugging
+        if doc_sources:
+            logger.info(f"📚 Documentos recuperados ({len(doc_sources)}): {[d['title'] for d in doc_sources]}")
+        else:
+            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial.")
 
         # 4. Construct Prompt
         prompt = self._construct_prompt(
@@ -157,10 +164,6 @@ class ChatService:
         answer = await self.llm.generate_async(prompt)
 
         # 6. Post-processing
-        # Mask unverified contacts from LLM hallucination safeguard
-        # (Assuming utility functions are ported or simple enough to inline/import)
-        # For brevity, implementing simple masking or trusting prompt instructions for now.
-        
         processing_time = time.time() - start_time
         
         response = QueryResponse(
@@ -185,40 +188,38 @@ class ChatService:
         web_info: str
     ) -> str:
         
-        # Determine Context Type (Follow-up vs New Query)
         is_clarification = False
         if history:
-            # Simple heuristic matching api.py
             last_user_msg = next((m.content for m in reversed(history) if m.role == 'user'), "")
             if len(question.split()) < 8 and "eso" in question.lower():
                 is_clarification = True
 
         context_blocks = []
         
-        # 1. Learned Corrections (Highest Priority)
+        # 1. Learned Corrections
         if learned_correction:
             correction_text, _, _, _ = learned_correction
-            context_blocks.append(f"🧠 CONOCIMIENTO APRENDIDO PREVIAMENTE:\n{correction_text}\n")
+            context_blocks.append(f"<learned_knowledge>\n{correction_text}\n</learned_knowledge>")
 
         # 2. Web Info
         if web_info:
-            context_blocks.append(f"🌐 INFORMACIÓN WEB VERIFICADA:\n{web_info}\n")
+            context_blocks.append(f"<web_info>\n{web_info}\n</web_info>")
 
         # 3. RAG Docs
         if docs:
-            context_blocks.append("📚 FUENTES LEGALES OFICIALES:\n" + "\n---\n".join(docs[:3]))
+            # Join top 5 docs max
+            docs_text = "\n---\n".join(docs[:5])
+            context_blocks.append(f"<official_docs>\n{docs_text}\n</official_docs>")
 
         hybrid_context = "\n".join(context_blocks)
         
-        # Build Conversation History for Prompt
+        # Build Conversation History
         chat_history_text = ""
-        # Take last 4 messages to save context window
-        recent_history = history[-4:] if history else []
+        recent_history = history[-6:] if history else [] # Increased history depth slightly
         for msg in recent_history:
             role = "Usuario" if msg.role == "user" else "Asistente"
             chat_history_text += f"{role}: {msg.content}\n"
 
-        # Select Instructions based on type
         if is_clarification:
             instruction_block = CLARIFICATION_INSTRUCTIONS
             context_template = CLARIFICATION_CONTEXT_TEMPLATE
@@ -226,7 +227,7 @@ class ChatService:
             instruction_block = CONTINUITY_INSTRUCTIONS
             context_template = NEW_QUERY_CONTEXT_TEMPLATE
 
-        # Assemble Final Prompt
+        # XML-Structured Prompt
         final_prompt = f"""{SYSTEM_PROMPT}
 
 {AUDIENCE_BLOCK}
@@ -239,13 +240,16 @@ class ChatService:
 
 {instruction_block}
 
-CONTEXTO DISPONIBLE:
+<context_data>
 {hybrid_context}
+</context_data>
 
-HISTORIAL DE CONVERSACIÓN:
+<conversation_history>
 {chat_history_text}
+</conversation_history>
 
-PREGUNTA ACTUAL:
+<user_query>
 {question}
+</user_query>
 """
         return final_prompt
