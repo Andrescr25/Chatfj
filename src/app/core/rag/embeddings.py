@@ -20,8 +20,8 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
     Maneja el estado 'Model Loading' y errores 503 automáticamente.
     """
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        # URL de la API
-        api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{self.model_name}"
+        # URL de la API (Actualizada 2026: router.huggingface.co)
+        api_url = f"https://router.huggingface.co/models/{self.model_name}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         # Payload con opción wait_for_model
@@ -54,6 +54,9 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
                         if isinstance(result[0][0], list): # Extra nest
                             return result[0]
                         return result
+                    # Si es lista plana (un solo doc), encapsular
+                    if isinstance(result[0], float):
+                        return [result]
                     
                 logger.error(f"❌ Formato inesperado de API: {result}")
                 return []
@@ -69,12 +72,16 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
         try:
             result = self.embed_documents([text])
             if result and len(result) > 0:
-                return result[0]
-            logger.warning(f"⚠️ Vector vacío generado para: {text[:15]}...")
-            return []
+                vector = result[0]
+                if vector: return vector # Ensure vector is not empty
+            
+            # Si llegamos aquí, falló.
+            # LANZAR ERROR para que store.py lo capture y no llame a Pinecone con basura
+            raise ValueError(f"No se pudo generar embedding para: {text[:15]}...")
+            
         except Exception as e:
              logger.error(f"❌ Error en embed_query: {e}")
-             return []
+             raise e # Re-raise to let store.py handle it gracefully
 
 class EmbeddingService:
     def __init__(self):
