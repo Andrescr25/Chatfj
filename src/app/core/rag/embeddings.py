@@ -11,24 +11,66 @@ from src.app.config import settings
 
 logger = logging.getLogger(__name__)
 
+import time
+import requests
+
 class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
-    """Wrapper seguro para HF API que maneja errores de carga y respuestas inesperadas."""
+    """
+    Cliente robusto para HF Inference API usando requests directo.
+    Maneja el estado 'Model Loading' y errores 503 automáticamente.
+    """
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        try:
-            return super().embed_documents(texts)
-        except KeyError:
-            # Captura el error común cuando la API devuelve un dict de error
-            logger.error("❌ HuggingFace API devolvió un error (KeyError: 0). Probablemente 'Model Loading' o 'Invalid Token'.")
-            return []
-        except Exception as e:
-            logger.error(f"❌ Error en HuggingFace Embeddings: {e}")
-            return []
+        # URL de la API
+        api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{self.model_name}"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        
+        # Payload con opción wait_for_model
+        payload = {
+            "inputs": texts,
+            "options": {"wait_for_model": True}
+        }
+
+        retries = 3
+        for attempt in range(retries):
+            try:
+                response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+                
+                # Check 503 (Loading) explicitly even if wait_for_model is True
+                if response.status_code == 503:
+                    estimated_time = response.json().get("estimated_time", 5.0)
+                    logger.warning(f"⏳ Modelo cargando... Esperando {estimated_time}s (Intento {attempt+1}/{retries})")
+                    time.sleep(estimated_time + 1)
+                    continue
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ Error API HF ({response.status_code}): {response.text}")
+                    return []
+
+                result = response.json()
+                # Validación de formato (debe ser lista de listas)
+                if isinstance(result, list) and len(result) > 0:
+                     # A veces devuelve [ [[...]] ] (nested) o directamente [[...]]
+                    if isinstance(result[0], list):
+                        if isinstance(result[0][0], list): # Extra nest
+                            return result[0]
+                        return result
+                    
+                logger.error(f"❌ Formato inesperado de API: {result}")
+                return []
+                
+            except Exception as e:
+                logger.error(f"❌ Error de conexión HF: {e}")
+                time.sleep(2)
+        
+        logger.error("❌ Fallaron todos los reintentos con HuggingFace API.")
+        return []
 
     def embed_query(self, text: str) -> List[float]:
         try:
             result = self.embed_documents([text])
             if result and len(result) > 0:
                 return result[0]
+            logger.warning(f"⚠️ Vector vacío generado para: {text[:15]}...")
             return []
         except Exception as e:
              logger.error(f"❌ Error en embed_query: {e}")
