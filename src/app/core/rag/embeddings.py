@@ -34,6 +34,10 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
         retries = 3
         for attempt in range(retries):
             try:
+                # Debug logging
+                masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "NO_KEY"
+                logger.info(f"🔗 Requesting: {api_url} (Key: {masked_key})")
+                
                 response = requests.post(api_url, headers=headers, json=payload, timeout=20)
                 
                 # Check 503 (Loading) explicitly even if wait_for_model is True
