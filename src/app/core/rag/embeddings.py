@@ -95,9 +95,11 @@ class EmbeddingService:
 
     def _initialize(self):
         if settings.HUGGINGFACEHUB_API_TOKEN:
-            logger.info("☁️ Usando HuggingFace Inference API para embeddings (Zero-RAM)")
+            token = settings.HUGGINGFACEHUB_API_TOKEN
+            masked = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "***"
+            logger.info(f"☁️ Usando HuggingFace Inference API para embeddings (Token: {masked})")
             self.client = SafeHuggingFaceEmbeddings(
-                api_key=settings.HUGGINGFACEHUB_API_TOKEN,
+                api_key=token,
                 model_name=settings.EMBEDDING_MODEL_NAME
             )
             self._test_api()
