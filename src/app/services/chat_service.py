@@ -115,12 +115,8 @@ class ChatService:
     async def get_response(self, question: str, history: List[Message]) -> QueryResponse:
         start_time = time.time()
         
-        # 1. Check Cache
-        cache_key = f"{question.strip().lower()}"
-        cached_result = self.cache.get(cache_key)
-        if cached_result:
-            logger.info("⚡ Respuesta servida desde Cache")
-            return QueryResponse(**cached_result)
+        # Cache desactivado para respuestas generales.
+        # Solo se cachean respuestas con correcciones aprendidas (ver abajo).
 
         # 2. Parallel Search Execution
         requires_contact, _ = self.requires_verified_contact_lookup(question, history)
@@ -185,8 +181,11 @@ class ChatService:
             correction_type=learned_correction[3] if learned_correction else ""
         )
         
-        # Cache successful responses
-        self.cache.set(cache_key, response.model_dump())
+        # Solo cachear respuestas que incluyen correcciones aprendidas
+        if learned_correction:
+            cache_key = f"{question.strip().lower()}"
+            self.cache.set(cache_key, response.model_dump())
+            logger.info("💾 Respuesta con corrección cacheada")
         
         return response
 
