@@ -23,7 +23,9 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
         # URL oficial de la Inference API (New Router endpoint - 2025)
         # El endpoint viejo api-inference.huggingface.co fue deprecado (410 Gone)
         api_url = f"https://router.huggingface.co/hf-inference/models/{self.model_name}"
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        # Extract raw string from SecretStr (Pydantic v2 auto-converts api_key)
+        raw_key = self.api_key.get_secret_value() if hasattr(self.api_key, 'get_secret_value') else str(self.api_key)
+        headers = {"Authorization": f"Bearer {raw_key}"}
         
         # Payload con opción wait_for_model
         payload = {
@@ -35,7 +37,7 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
         for attempt in range(retries):
             try:
                 # Debug logging
-                masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "NO_KEY"
+                masked_key = f"{raw_key[:4]}...{raw_key[-4:]}" if raw_key and len(raw_key) > 8 else "NO_KEY"
                 logger.info(f"🔗 Requesting: {api_url} (Key: {masked_key})")
                 
                 response = requests.post(api_url, headers=headers, json=payload, timeout=20)
