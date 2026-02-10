@@ -35,8 +35,8 @@ class ChatService:
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStoreService(self.embedding_service)
         
-        # 2. Training Service
-        self.training_service = TrainingService(self.embedding_service)
+        # 2. Training Service (uses Pinecone namespace 'corrections')
+        self.training_service = TrainingService(self.vector_store)
         
         # 3. LLM Provider
         if settings.LLM_PROVIDER == "openrouter":
@@ -56,11 +56,8 @@ class ChatService:
         """Ejecuta búsquedas de contexto en paralelo."""
         loop = asyncio.get_running_loop()
         
-        # Task 1: Learned Corrections
-        learned_task = loop.run_in_executor(
-            None, 
-            lambda: self.training_service.get_learned_correction(question)
-        )
+        # Task 1: Learned Corrections (async, uses Pinecone namespace)
+        learned_task = self.training_service.get_learned_correction_async(question)
         
         # Task 2: Vector Search
         async def fetch_documents():
@@ -211,10 +208,15 @@ class ChatService:
 
         context_blocks = []
         
-        # 1. Learned Corrections
+        # 1. Verified Corrections (HIGHEST PRIORITY)
         if learned_correction:
-            correction_text, _, _, _ = learned_correction
-            context_blocks.append(f"<learned_knowledge>\n{correction_text}\n</learned_knowledge>")
+            correction_text, score, corr_id, intent = learned_correction
+            context_blocks.append(
+                f"<verified_corrections>\n"
+                f"CORRECCIÓN VERIFICADA POR ABOGADO (Prioridad Máxima - score: {score:.2f}):\n"
+                f"{correction_text}\n"
+                f"</verified_corrections>"
+            )
 
         # 2. Web Info
         if web_info:

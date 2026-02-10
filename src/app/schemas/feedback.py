@@ -7,6 +7,7 @@ class FeedbackItemRequest(BaseModel):
     original_question: str
     full_response: str
     intent: str = "correction"  # correction | expansion | tone
+    trainer_name: str = "anon"  # Nombre del abogado/entrenador
 
 class FeedbackRequest(BaseModel):
     items: List[FeedbackItemRequest]
