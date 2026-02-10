@@ -16,6 +16,9 @@ function TrainingChat({ onClose }) {
   const [pendingFeedback, setPendingFeedback] = useState(null);
   const [stats, setStats] = useState({ approved: 0, corrected: 0 });
   const [submitting, setSubmitting] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingMessage, setTypingMessage] = useState('');
+
   const messagesEndRef = useRef(null);
   const correctionRef = useRef(null);
 
@@ -27,7 +30,7 @@ function TrainingChat({ onClose }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, feedbackState]);
+  }, [messages, feedbackState, typingMessage, isTyping]);
 
   useEffect(() => {
     if (feedbackState === 'correcting' && correctionRef.current) {
@@ -37,6 +40,107 @@ function TrainingChat({ onClose }) {
       correctionRef.current.setSelectionRange(len, len);
     }
   }, [feedbackState]);
+
+  // === HELPERS ===
+  const parseMarkdownLine = (text) => {
+    if (!text || !text.trim()) return text;
+    // Bold: **text** or __text__
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    // Italic: *text* or _text_
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+    return text;
+  };
+
+  const renderMessageContent = (content) => {
+    if (!content) return null;
+    const lines = content.split('\n');
+    return lines.map((line, idx) => {
+      // Headings (## or ###)
+      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+      if (headingMatch) {
+         return (
+           <React.Fragment key={idx}>
+             <span className="tc-markdown-heading" dangerouslySetInnerHTML={{ __html: parseMarkdownLine(headingMatch[2]) }} />
+             {idx < lines.length - 1 && <br />}
+           </React.Fragment>
+         );
+      }
+      // Lists (- or *)
+      const listMatch = line.match(/^[-*]\s+(.+)$/);
+      if (listMatch) {
+        return (
+          <React.Fragment key={idx}>
+            <span className="tc-markdown-list-item">
+              • <span dangerouslySetInnerHTML={{ __html: parseMarkdownLine(listMatch[1]) }} />
+            </span>
+            {idx < lines.length - 1 && <br />}
+          </React.Fragment>
+        );
+      }
+      // Check for separator ---
+      if (line.trim() === '---') {
+        return <hr key={idx} style={{ border: 0, borderTop: '1px solid #334155', margin: '12px 0' }} />;
+      }
+
+      // Normal text
+      return (
+        <React.Fragment key={idx}>
+          <span dangerouslySetInnerHTML={{ __html: parseMarkdownLine(line) }} />
+          {idx < lines.length - 1 && <br />}
+        </React.Fragment>
+      );
+    });
+  };
+
+  const typeMessage = (fullMessage, data) => {
+    setIsTyping(true);
+    setTypingMessage('');
+    
+    // Split by lines to preserve structure during typing
+    const lines = fullMessage.split('\n');
+    let currentText = '';
+    let currentLineIndex = 0;
+    let currentWordIndex = 0;
+
+    const typeInterval = setInterval(() => {
+      if (currentLineIndex < lines.length) {
+        const currentLine = lines[currentLineIndex];
+        const words = currentLine.split(' '); // Split by space to type word by word
+
+        if (currentWordIndex < words.length) {
+          currentText += (currentWordIndex > 0 ? ' ' : '') + words[currentWordIndex];
+          currentWordIndex++;
+          setTypingMessage(currentText);
+        } else {
+           // End of line
+           if (currentLineIndex < lines.length - 1) {
+             currentText += '\n';
+             setTypingMessage(currentText);
+           }
+           currentLineIndex++;
+           currentWordIndex = 0;
+        }
+      } else {
+        clearInterval(typeInterval);
+        setIsTyping(false);
+        setTypingMessage('');
+        
+        // Add final message
+        const aiMsg = {
+          role: 'assistant',
+          content: fullMessage,
+          sources: data.sources || [],
+          processing_time: data.processing_time || 0,
+          learned_from_feedback: data.learned_from_feedback || false
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        setFeedbackState('waiting');
+        setPendingFeedback({ question: data.original_question, answer: fullMessage });
+      }
+    }, 15); // Speed
+  };
 
   // === SEND QUESTION ===
   const sendQuestion = async (e) => {
@@ -57,18 +161,12 @@ function TrainingChat({ onClose }) {
       });
 
       const data = await response.json();
+      // Pass original question for feedback linkage
+      data.original_question = question; 
 
-      const aiMsg = {
-        role: 'assistant',
-        content: data.answer,
-        sources: data.sources || [],
-        processing_time: data.processing_time || 0,
-        learned_from_feedback: data.learned_from_feedback || false
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-      setFeedbackState('waiting');
-      setPendingFeedback({ question, answer: data.answer });
+      setIsLoading(false);
+      // Start typing animation
+      typeMessage(data.answer, data);
 
     } catch (error) {
       console.error('Error:', error);
@@ -249,32 +347,34 @@ function TrainingChat({ onClose }) {
                   {msg.content}
                 </div>
               )}
+
               {msg.role === 'assistant' && (
                 <div className="tc-bubble tc-bubble-ai">
                   <div className="tc-bubble-header">
                     <span className="tc-ai-badge">IA</span>
-                    {msg.processing_time > 0 && (
-                      <span className="tc-time">
-                        <Clock size={12} />
-                        {msg.processing_time.toFixed(2)}s
-                      </span>
-                    )}
+                  </div>
+                  <div className="tc-bubble-content">
+                    {renderMessageContent(msg.content)}
+                  </div>
+                  <div className="tc-sources">
+                    <Clock size={12} />
+                    <span>{Number(msg.processing_time || 0).toFixed(2)}s</span>
                     {msg.learned_from_feedback && (
                       <span className="tc-correction-badge">
                         <GraduationCap size={12} />
                         Respuesta entrenada
                       </span>
                     )}
+                    {msg.sources && msg.sources.length > 0 && (
+                      <>
+                        <BookOpen size={12} />
+                        {msg.sources.length} fuente{msg.sources.length !== 1 ? 's' : ''}
+                      </>
+                    )}
                   </div>
-                  <div className="tc-bubble-content">{msg.content}</div>
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div className="tc-sources">
-                      <BookOpen size={12} />
-                      {msg.sources.length} fuente{msg.sources.length !== 1 ? 's' : ''}
-                    </div>
-                  )}
                 </div>
               )}
+
               {msg.role === 'system' && (
                 <div className={`tc-system-msg tc-system-${msg.type || 'info'}`}>
                   {msg.type === 'approved' && <Check size={16} />}
@@ -292,6 +392,20 @@ function TrainingChat({ onClose }) {
                 Procesando...
               </div>
             </div>
+          )}
+
+          {isTyping && (
+             <div className="tc-msg tc-msg-assistant">
+               <div className="tc-bubble tc-bubble-ai">
+                 <div className="tc-bubble-header">
+                    <span className="tc-ai-badge">IA</span>
+                 </div>
+                 <div className="tc-bubble-content">
+                   {renderMessageContent(typingMessage)}
+                   <span className="tc-typing-cursor"></span>
+                 </div>
+               </div>
+             </div>
           )}
 
           <div ref={messagesEndRef} />
