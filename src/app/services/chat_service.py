@@ -139,6 +139,20 @@ class ChatService:
         final_docs_content = []
         doc_sources = []
         
+        # === DEBUG: Log ALL raw results before filtering ===
+        logger.info(f"🔍 DEBUG: Total resultados crudos de Pinecone: {len(relevant_docs)}")
+        for i, (doc, score) in enumerate(relevant_docs):
+            source = doc.metadata.get('source', 'Sin fuente')
+            content_preview = doc.page_content[:300].replace('\n', ' ') if doc.page_content else '(VACÍO)'
+            metadata_keys = list(doc.metadata.keys()) if doc.metadata else []
+            logger.info(
+                f"📄 DOC [{i+1}/{len(relevant_docs)}] "
+                f"Score: {score:.4f} | Fuente: {source} | "
+                f"Metadata keys: {metadata_keys} | "
+                f"Contenido ({len(doc.page_content)} chars): {content_preview}..."
+            )
+        # === END DEBUG ===
+        
         for doc, score in relevant_docs:
             # Umbral de relevancia más estricto para evitar ruido
             if score > 0.50: 
@@ -149,9 +163,10 @@ class ChatService:
         
         # Log retrieved evidence for debugging
         if doc_sources:
-            logger.info(f"📚 Documentos recuperados ({len(doc_sources)}): {[d['title'] for d in doc_sources]}")
+            logger.info(f"📚 Documentos que pasaron filtro (score > 0.50): {len(doc_sources)}/{len(relevant_docs)}")
+            logger.info(f"📚 Fuentes filtradas: {[f'{d[\"title\"]} ({d[\"score\"]:.4f})' for d in doc_sources]}")
         else:
-            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial.")
+            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.50).")
 
         # 4. Construct Prompt
         prompt = self._construct_prompt(
