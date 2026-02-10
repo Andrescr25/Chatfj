@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BaseLLM(ABC):
     @abstractmethod
-    async def generate_async(self, prompt: str) -> str:
+    async def generate_async(self, prompt: str, system_message: str = None) -> str:
         pass
 
 class GroqLLM(BaseLLM):
@@ -19,14 +19,23 @@ class GroqLLM(BaseLLM):
         self.client = Groq(api_key=api_key)
         self.model = model
 
-    async def generate_async(self, prompt: str) -> str:
+    async def generate_async(self, prompt, system_message: str = None) -> str:
         loop = asyncio.get_running_loop()
         
         def _run() -> str:
             try:
+                # Build messages with role separation if system_message provided
+                if system_message:
+                    messages = [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt}
+                    ]
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                
                 completion = self.client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     temperature=0.3,
                     max_tokens=2000,
                     top_p=0.9,
@@ -48,11 +57,20 @@ class OpenRouterLLM(BaseLLM):
         self.model = model
         self.base_url = "https://openrouter.ai/api/v1"
 
-    async def generate_async(self, prompt: str) -> str:
+    async def generate_async(self, prompt, system_message: str = None) -> str:
         loop = asyncio.get_running_loop()
         
         def _run() -> str:
             try:
+                # Build messages with role separation if system_message provided
+                if system_message:
+                    messages = [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt}
+                    ]
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                
                 response = requests.post(
                     f"{self.base_url}/chat/completions",
                     headers={
@@ -63,7 +81,7 @@ class OpenRouterLLM(BaseLLM):
                     },
                     json={
                         "model": self.model,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "messages": messages,
                         "temperature": 0.3,
                         "max_tokens": 2000,
                         "top_p": 0.9,

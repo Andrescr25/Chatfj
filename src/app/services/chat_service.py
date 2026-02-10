@@ -169,15 +169,13 @@ class ChatService:
         else:
             logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.50).")
 
-        # 4. Construct Prompt
-        prompt = self._construct_prompt(
+        # 5. Generate Answer
+        logger.info(f"🤖 Generando respuesta con {self.llm.__class__.__name__}...")
+        system_msg, user_msg = self._construct_prompt(
             question, history, learned_correction, 
             final_docs_content, web_info
         )
-
-        # 5. Generate Answer
-        logger.info(f"🤖 Generando respuesta con {self.llm.__class__.__name__}...")
-        answer = await self.llm.generate_async(prompt)
+        answer = await self.llm.generate_async(user_msg, system_message=system_msg)
 
         # 6. Post-processing
         processing_time = time.time() - start_time
@@ -202,7 +200,8 @@ class ChatService:
         learned_correction: Optional[Tuple], 
         docs: List[str], 
         web_info: str
-    ) -> str:
+    ) -> Tuple[str, str]:
+        """Returns (system_message, user_message) for role separation."""
         
         is_clarification = False
         if history:
@@ -221,17 +220,16 @@ class ChatService:
         if web_info:
             context_blocks.append(f"<web_info>\n{web_info}\n</web_info>")
 
-        # 3. RAG Docs
+        # 3. RAG Docs — pass ALL filtered docs (already filtered by score)
         if docs:
-            # Join top 5 docs max
-            docs_text = "\n---\n".join(docs[:5])
+            docs_text = "\n---\n".join(docs)
             context_blocks.append(f"<official_docs>\n{docs_text}\n</official_docs>")
 
         hybrid_context = "\n".join(context_blocks)
         
         # Build Conversation History
         chat_history_text = ""
-        recent_history = history[-6:] if history else [] # Increased history depth slightly
+        recent_history = history[-6:] if history else []
         for msg in recent_history:
             role = "Usuario" if msg.role == "user" else "Asistente"
             chat_history_text += f"{role}: {msg.content}\n"
@@ -243,8 +241,8 @@ class ChatService:
             instruction_block = CONTINUITY_INSTRUCTIONS
             context_template = NEW_QUERY_CONTEXT_TEMPLATE
 
-        # XML-Structured Prompt
-        final_prompt = f"""{SYSTEM_PROMPT}
+        # SYSTEM MESSAGE: instructions + context docs
+        system_msg = f"""{SYSTEM_PROMPT}
 
 {AUDIENCE_BLOCK}
 
@@ -259,13 +257,12 @@ class ChatService:
 <context_data>
 {hybrid_context}
 </context_data>
-
-<conversation_history>
-{chat_history_text}
-</conversation_history>
-
-<user_query>
-{question}
-</user_query>
 """
-        return final_prompt
+
+        # USER MESSAGE: conversation history + question
+        user_msg = ""
+        if chat_history_text:
+            user_msg += f"<conversation_history>\n{chat_history_text}</conversation_history>\n\n"
+        user_msg += f"<user_query>\n{question}\n</user_query>"
+
+        return system_msg, user_msg
