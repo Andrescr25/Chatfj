@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Menu, X, MessageSquarePlus, AlertTriangle, MessageSquare, Clock, Trash2,
-  GraduationCap, Scale, CircleDollarSign, Briefcase, User, Check, ExternalLink,
+  GraduationCap, Scale, CircleDollarSign, Briefcase, User, ExternalLink,
   Sun, Moon, Send, Loader2, FileText, Bot
 } from 'lucide-react';
 import './App.css';
@@ -34,6 +34,15 @@ function App() {
   const API_URL = process.env.REACT_APP_API_URL || '';
 
   const currentConv = conversations.find(c => c.id === currentConvId);
+
+  // Safety check to prevent "Cannot read properties of undefined"
+  if (!currentConv) {
+    // If somehow we lost the track, reset to first conversation or create one
+    if (conversations.length > 0) {
+       setCurrentConvId(conversations[0].id);
+    }
+    return null; // Render nothing while state updates
+  }
 
   // Auto-scroll desactivado para permitir lectura sin interrupciones
   // const scrollToBottom = () => {

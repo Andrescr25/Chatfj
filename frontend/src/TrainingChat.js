@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Send, Check, Pencil, Upload, Loader2,
-  GraduationCap, MessageSquare, Clock, BookOpen, ChevronUp
+  GraduationCap, MessageSquare, Clock, BookOpen
 } from 'lucide-react';
 import './TrainingChat.css';
 
