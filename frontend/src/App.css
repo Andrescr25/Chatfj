@@ -353,11 +353,12 @@ body {
 
 /* Responsive para móvil */
 @media (max-width: 768px) {
+
   /* Ocultar switch del header en móvil */
   .header .theme-toggle-container {
     display: none;
   }
-  
+
   /* Mostrar switch en sidebar en móvil */
   .sidebar-theme-toggle {
     display: flex;
@@ -500,6 +501,7 @@ body {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -612,10 +614,13 @@ body {
   /* Evitar que las palabras se corten - bajarlas completas a la siguiente línea */
   word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: normal; /* NO romper palabras en medio */
-  hyphens: none; /* NO usar guiones para dividir palabras */
+  word-break: normal;
+  /* NO romper palabras en medio */
+  hyphens: none;
+  /* NO usar guiones para dividir palabras */
   -webkit-hyphens: none;
-  white-space: pre-wrap; /* Respetar saltos de línea y espacios */
+  white-space: pre-wrap;
+  /* Respetar saltos de línea y espacios */
 }
 
 .message-content p {
@@ -721,10 +726,14 @@ body {
 }
 
 @keyframes typingAnimation {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     opacity: 0.3;
     transform: translateY(0);
   }
+
   30% {
     opacity: 1;
     transform: translateY(-6px);
@@ -966,6 +975,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -1277,6 +1287,7 @@ body {
     transform: translateX(-20px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -1483,10 +1494,14 @@ body {
 
 /* Typing cursor animation */
 @keyframes blink {
-  0%, 50% {
+
+  0%,
+  50% {
     opacity: 1;
   }
-  51%, 100% {
+
+  51%,
+  100% {
     opacity: 0;
   }
 }
@@ -1551,8 +1566,11 @@ body {
 
 /* Mejoras para accesibilidad en móvil */
 @media (hover: none) and (pointer: coarse) {
+
   /* En dispositivos táctiles, mejorar áreas tocables */
-  button, .example-card, .conversation-item {
+  button,
+  .example-card,
+  .conversation-item {
     min-height: 44px;
     min-width: 44px;
   }
@@ -1560,6 +1578,7 @@ body {
 
 /* Reducir animaciones para usuarios que prefieren menos movimiento */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -1573,4 +1592,18 @@ body {
 /* Soporte para modo oscuro del sistema (opcional) */
 @media (prefers-color-scheme: dark) {
   /* Ya está en dark mode por defecto, pero podríamos agregar variantes */
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }

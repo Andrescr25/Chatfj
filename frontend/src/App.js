@@ -1,4 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  Menu, X, MessageSquarePlus, AlertTriangle, MessageSquare, Clock, Trash2,
+  GraduationCap, Scale, CircleDollarSign, Briefcase, User, Check, ExternalLink,
+  Sun, Moon, Send, Loader2, FileText, Bot
+} from 'lucide-react';
 import './App.css';
 import TrainingChat from './TrainingChat';
 
@@ -390,7 +395,7 @@ function App() {
         onClick={() => setSidebarOpen(!sidebarOpen)}
         aria-label="Toggle menu"
       >
-        {sidebarOpen ? '✕' : '☰'}
+        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
       {/* Mobile Overlay */}
@@ -411,11 +416,11 @@ function App() {
           }}
           disabled={currentConv.messages.length === 0}
         >
-          ➕ Nueva conversación
+          <MessageSquarePlus size={16} /> Nueva conversación
         </button>
         
         {currentConv.messages.length === 0 && (
-          <p className="warning">⚠️ Escribe algo primero</p>
+          <p className="warning"><AlertTriangle size={12} style={{marginRight: '4px', verticalAlign: 'text-bottom'}}/> Escribe algo primero</p>
         )}
 
         <div className="conversations-list">
@@ -429,10 +434,10 @@ function App() {
                 }}
               >
                 <div className="conversation-title">
-                  💬 {conv.title}
+                  <MessageSquare size={14} style={{marginTop: '2px'}}/> {conv.title}
                 </div>
                 <div className="conversation-date">
-                  🕐 {formatTimestamp(conv.timestamp)}
+                  <Clock size={12} /> {formatTimestamp(conv.timestamp)}
                 </div>
               </button>
               <button
@@ -440,7 +445,7 @@ function App() {
                 onClick={() => deleteConversation(conv.id)}
                 disabled={conversations.length === 1}
               >
-                🗑️
+                <Trash2 size={16} />
               </button>
             </div>
           ))}
@@ -464,22 +469,10 @@ function App() {
               }}
             >
               <span className="theme-icon sun">
-                <svg viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="5"/>
-                  <line x1="12" y1="1" x2="12" y2="3"/>
-                  <line x1="12" y1="21" x2="12" y2="23"/>
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                  <line x1="1" y1="12" x2="3" y2="12"/>
-                  <line x1="21" y1="12" x2="23" y2="12"/>
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
+                <Sun size={14} />
               </span>
               <span className="theme-icon moon">
-                <svg viewBox="0 0 24 24">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
+                <Moon size={14} />
               </span>
               <div className="theme-toggle-slider"></div>
             </div>
@@ -493,7 +486,7 @@ function App() {
             }}
             title="Modo Entrenamiento"
           >
-            🎓 Modo Entrenamiento
+            <GraduationCap size={16} /> Modo Entrenamiento
           </button>
           <p>Chat FJ v2.0</p>
           <p>Poder Judicial CR 🇨🇷</p>
@@ -503,7 +496,7 @@ function App() {
       {/* Main Content */}
       <div className="main-content">
         <div className="header">
-          <h1>⚖️ Chat FJ - Servicio Nacional de Facilitadoras y Facilitadores Judiciales</h1>
+          <h1><Scale size={20} style={{verticalAlign: 'text-bottom', marginRight: '8px'}}/> Chat FJ - Servicio Nacional de Facilitadoras y Facilitadores Judiciales</h1>
           
           {/* Theme Toggle Switch */}
           <div className="theme-toggle-container">
@@ -522,22 +515,10 @@ function App() {
               }}
             >
               <span className="theme-icon sun">
-                <svg viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="5"/>
-                  <line x1="12" y1="1" x2="12" y2="3"/>
-                  <line x1="12" y1="21" x2="12" y2="23"/>
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                  <line x1="1" y1="12" x2="3" y2="12"/>
-                  <line x1="21" y1="12" x2="23" y2="12"/>
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
+                <Sun size={14} />
               </span>
               <span className="theme-icon moon">
-                <svg viewBox="0 0 24 24">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
+                <Moon size={14} />
               </span>
               <div className="theme-toggle-slider"></div>
             </div>
@@ -547,7 +528,7 @@ function App() {
         <div className="chat-container">
           {currentConv.messages.length === 0 ? (
             <div className="welcome-screen">
-              <h2>⚖️ ¿En qué puedo ayudarte hoy?</h2>
+              <h2><Scale size={32} style={{verticalAlign: 'middle', marginRight: '10px'}}/> ¿En qué puedo ayudarte hoy?</h2>
               <p>Estoy aquí para orientarte sobre temas legales y judiciales en Costa Rica</p>
               
               <div className="example-cards">
@@ -555,7 +536,7 @@ function App() {
                   className="example-card"
                   onClick={() => handleExampleClick('Mi ex no paga pensión, ¿qué hago?')}
                 >
-                  <div className="example-card-icon">💰</div>
+                  <div className="example-card-icon"><CircleDollarSign size={24}/></div>
                   <div className="example-card-title">Pensión Alimentaria</div>
                   <div className="example-card-text">Mi ex no paga pensión, ¿qué hago?</div>
                 </button>
@@ -563,7 +544,7 @@ function App() {
                   className="example-card"
                   onClick={() => handleExampleClick('¿Que es una conciliación?')}
                 >
-                  <div className="example-card-icon">⚖️</div>
+                  <div className="example-card-icon"><Scale size={24}/></div>
                   <div className="example-card-title">Conciliación</div>
                   <div className="example-card-text">¿Que es una conciliación?</div>
                 </button>
@@ -571,7 +552,7 @@ function App() {
                   className="example-card"
                   onClick={() => handleExampleClick('Mi jefe no me paga horas extra')}
                 >
-                  <div className="example-card-icon">👔</div>
+                  <div className="example-card-icon"><Briefcase size={24}/></div>
                   <div className="example-card-title">Derecho Laboral</div>
                   <div className="example-card-text">Mi jefe no me paga horas extra</div>
                 </button>
@@ -582,7 +563,7 @@ function App() {
               {currentConv.messages.map((msg, idx) => (
                 <div key={idx} className={`message ${msg.role}`}>
                   <div className="message-avatar">
-                    {msg.role === 'user' ? '👤' : '⚖️'}
+                    {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
                   </div>
                   <div className="message-content">
                     {msg.role === 'assistant'
@@ -646,7 +627,7 @@ function App() {
               ))}
               {isLoading && (
                 <div className="typing-indicator">
-                  <div className="message-avatar">⚖️</div>
+                  <div className="message-avatar"><Bot size={20} /></div>
                   <div className="typing-dots">
                     <span></span>
                     <span></span>
@@ -656,7 +637,7 @@ function App() {
               )}
               {isTyping && typingMessage && (
                 <div className="message assistant">
-                  <div className="message-avatar">⚖️</div>
+                  <div className="message-avatar"><Bot size={20} /></div>
                   <div className="message-content">
                     {renderMessageWithReferences(typingMessage, typingSources)}
                     <span className="typing-cursor">▊</span>
@@ -700,7 +681,7 @@ function App() {
                 disabled={isLoading || !input.trim()}
                 title="Enviar mensaje"
               >
-                {isLoading ? <div className="spinner"></div> : '↑'}
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
             </div>
             <div className="footer-text">
@@ -715,12 +696,12 @@ function App() {
         <div className="reference-modal-overlay" onClick={() => setShowReferenceModal(false)}>
           <div className="reference-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>📄 {selectedReference.filename || 'Fuente'}</h3>
+              <h3><FileText size={20} style={{verticalAlign: 'bottom', marginRight: '8px'}}/> {selectedReference.filename || 'Fuente'}</h3>
               <button
                 className="modal-close-btn"
                 onClick={() => setShowReferenceModal(false)}
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
             <div className="modal-content">
@@ -736,7 +717,7 @@ function App() {
                     rel="noopener noreferrer"
                     className="web-reference-button"
                   >
-                    🌐 Abrir sitio web
+                    <ExternalLink size={16} style={{marginRight: '6px'}}/> Abrir sitio web
                   </a>
                 </div>
               ) : (
