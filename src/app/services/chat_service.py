@@ -164,7 +164,8 @@ class ChatService:
         # Log retrieved evidence for debugging
         if doc_sources:
             logger.info(f"📚 Documentos que pasaron filtro (score > 0.50): {len(doc_sources)}/{len(relevant_docs)}")
-            logger.info(f"📚 Fuentes filtradas: {[f'{d[\"title\"]} ({d[\"score\"]:.4f})' for d in doc_sources]}")
+            filtered_summary = [f"{d['title']} ({d['score']:.4f})" for d in doc_sources]
+            logger.info(f"📚 Fuentes filtradas: {filtered_summary}")
         else:
             logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.50).")
 
