@@ -35,14 +35,7 @@ function App() {
 
   const currentConv = conversations.find(c => c.id === currentConvId);
 
-  // Safety check to prevent "Cannot read properties of undefined"
-  if (!currentConv) {
-    // If somehow we lost the track, reset to first conversation or create one
-    if (conversations.length > 0) {
-       setCurrentConvId(conversations[0].id);
-    }
-    return null; // Render nothing while state updates
-  }
+
 
   // Auto-scroll desactivado para permitir lectura sin interrupciones
   // const scrollToBottom = () => {
@@ -395,6 +388,15 @@ function App() {
       );
     });
   };
+
+  // Safety check to prevent "Cannot read properties of undefined"
+  if (!currentConv) {
+    // If somehow we lost the track, reset to first conversation or create one
+    if (conversations.length > 0) {
+       setCurrentConvId(conversations[0].id);
+    }
+    return null; // Render nothing while state updates
+  }
 
   return (
     <div className="app">
