@@ -50,7 +50,7 @@ function TrainingChat({ onClose }) {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/ask`, {
+      const response = await fetch(`${API_URL}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, history: [] })
@@ -88,7 +88,7 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      await fetch(`${API_URL}/api/v1/feedback`, {
+      await fetch(`${API_URL}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -136,7 +136,7 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/feedback`, {
+      const response = await fetch(`${API_URL}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
