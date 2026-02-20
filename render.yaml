@@ -17,8 +17,7 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: moonshotai/kimi-k2-instruct-0905
-      - key: CHROMA_PERSIST_DIRECTORY
-        value: /opt/render/project/src/data/chroma_db
+
       - key: EMBEDDING_MODEL
         value: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
       - key: PINECONE_ENV
@@ -29,10 +28,7 @@ services:
         sync: false
       - key: PINECONE_API_KEY
         sync: false
-    disk:
-      name: chroma-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
+
     
   # Frontend
   - type: web

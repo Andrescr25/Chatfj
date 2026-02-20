@@ -545,11 +545,11 @@ function App() {
               <div className="example-cards">
                 <button 
                   className="example-card"
-                  onClick={() => handleExampleClick('Mi ex no paga pensión, ¿qué hago?')}
+                  onClick={() => handleExampleClick('¿Qué pasa si el padre de hijos en común no paga pensión?')}
                 >
                   <div className="example-card-icon"><CircleDollarSign size={24}/></div>
                   <div className="example-card-title">Pensión Alimentaria</div>
-                  <div className="example-card-text">Mi ex no paga pensión, ¿qué hago?</div>
+                  <div className="example-card-text">¿Qué pasa si el padre de hijos en común no paga pensión?</div>
                 </button>
                 <button
                   className="example-card"

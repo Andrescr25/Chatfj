@@ -46,9 +46,6 @@ check $? "frontend/package.json existe"
 [ -f ".gitignore" ]
 check $? ".gitignore existe"
 
-# Check 6: import_to_langchain_chroma.py existe
-[ -f "import_to_langchain_chroma.py" ]
-check $? "import_to_langchain_chroma.py existe"
 
 # Check 7: data/bloques_limpios.jsonl existe
 [ -f "data/bloques_limpios.jsonl" ]
@@ -67,9 +64,6 @@ check $? "config.env NO está en el repositorio (correcto)"
 grep -q "config/config.env" .gitignore
 check $? ".gitignore contiene config.env"
 
-# Check 10: .gitignore contiene chroma_db
-grep -q "chroma_db" .gitignore
-check $? ".gitignore contiene chroma_db"
 
 echo ""
 echo "📦 Verificando dependencias..."
@@ -83,9 +77,6 @@ check $? "duckduckgo-search en requirements.txt"
 grep -q "groq" requirements.txt
 check $? "groq en requirements.txt"
 
-# Check 13: chromadb en requirements
-grep -q "chromadb" requirements.txt
-check $? "chromadb en requirements.txt"
 
 echo ""
 echo "🎯 Verificando configuración de Render..."
@@ -95,13 +86,7 @@ echo ""
 grep -q "GROQ_API_KEY" render.yaml
 check $? "render.yaml configura GROQ_API_KEY"
 
-# Check 15: render.yaml tiene disco persistente
-grep -q "disk:" render.yaml
-check $? "render.yaml tiene disco persistente configurado"
 
-# Check 16: render.yaml ejecuta import
-grep -q "import_to_langchain_chroma.py" render.yaml
-check $? "render.yaml ejecuta import de ChromaDB"
 
 echo ""
 echo "========================================"

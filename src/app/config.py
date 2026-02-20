@@ -10,7 +10,6 @@ class Settings(BaseSettings):
 
     
     # Paths
-    PERSIST_DIR: str = "data/chroma_db"
     
     # LLM Configuration
     LLM_PROVIDER: str = "groq"
