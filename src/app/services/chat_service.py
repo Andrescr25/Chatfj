@@ -147,8 +147,8 @@ class ChatService:
         # === END DEBUG ===
         
         for doc, score in relevant_docs:
-            # Umbral de relevancia más estricto para evitar ruido
-            if score > 0.50: 
+            # Umbral de relevancia más estricto para evitar ruido y asegurar alta precisión
+            if score > 0.75: 
                 content = doc.page_content
                 source = doc.metadata.get('source', 'Documento Interno')
                 final_docs_content.append(f"Fuente: {source}\nContenido: {content}")
@@ -156,11 +156,11 @@ class ChatService:
         
         # Log retrieved evidence for debugging
         if doc_sources:
-            logger.info(f"📚 Documentos que pasaron filtro (score > 0.50): {len(doc_sources)}/{len(relevant_docs)}")
+            logger.info(f"📚 Documentos que pasaron filtro (score > 0.75): {len(doc_sources)}/{len(relevant_docs)}")
             filtered_summary = [f"{d['title']} ({d['score']:.4f})" for d in doc_sources]
             logger.info(f"📚 Fuentes filtradas: {filtered_summary}")
         else:
-            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.50).")
+            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.75).")
 
         # 5. Generate Answer
         logger.info(f"🤖 Generando respuesta con {self.llm.__class__.__name__}...")
@@ -207,24 +207,24 @@ class ChatService:
 
         context_blocks = []
         
-        # 1. Verified Corrections (HIGHEST PRIORITY)
-        if learned_correction:
-            correction_text, score, corr_id, intent = learned_correction
-            context_blocks.append(
-                f"<verified_corrections>\n"
-                f"CORRECCIÓN VERIFICADA POR ABOGADO (Prioridad Máxima - score: {score:.2f}):\n"
-                f"{correction_text}\n"
-                f"</verified_corrections>"
-            )
+        # 1. RAG Docs — pass ALL filtered docs (already filtered by score)
+        if docs:
+            docs_text = "\n---\n".join(docs)
+            context_blocks.append(f"<official_docs>\n{docs_text}\n</official_docs>")
 
         # 2. Web Info
         if web_info:
             context_blocks.append(f"<web_info>\n{web_info}\n</web_info>")
 
-        # 3. RAG Docs — pass ALL filtered docs (already filtered by score)
-        if docs:
-            docs_text = "\n---\n".join(docs)
-            context_blocks.append(f"<official_docs>\n{docs_text}\n</official_docs>")
+        # 3. Verified Corrections (HIGHEST PRIORITY)
+        if learned_correction:
+            correction_text, score, corr_id, intent = learned_correction
+            context_blocks.append(
+                f"<verified_corrections>\n"
+                f"INSTRUCCIÓN CRÍTICA: La siguiente corrección verificada por un abogado tiene PRIORIDAD MÁXIMA (score: {score:.2f}). Ignora cualquier información en <official_docs> o <web_info> que la contradiga:\n"
+                f"{correction_text}\n"
+                f"</verified_corrections>"
+            )
 
         hybrid_context = "\n".join(context_blocks)
         

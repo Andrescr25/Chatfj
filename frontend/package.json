@@ -8,10 +8,15 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^13.5.0",
+    "ajv": "^8.18.0",
+    "css-minimizer-webpack-plugin": "^7.0.4",
     "lucide-react": "^0.563.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
+    "schema-utils": "^4.3.3",
+    "serialize-javascript": "^7.0.2",
+    "terser-webpack-plugin": "^5.3.16",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
@@ -37,5 +42,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "overrides": {
+    "graceful-fs": "^4.2.11"
   }
 }

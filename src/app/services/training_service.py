@@ -91,21 +91,21 @@ class TrainingService:
     async def get_learned_correction_async(self, question: str) -> Optional[Tuple[str, float, str, str]]:
         """
         Busca correcciones aprendidas en Pinecone.
-        Usa doble filtro: score >= 0.92 + validación de keywords.
+        Usa doble filtro: score >= 0.85 + validación mitigada de keywords.
         Returns: (correction_text, score, correction_id, intent) or None
         """
         try:
             corrections = await self.vector_store.search_corrections_async(
                 query=question, 
                 k=3, 
-                threshold=0.92
+                threshold=0.85
             )
             
             if corrections:
                 best = corrections[0]  # Ya ordenado por score descendente
                 
-                # Doble filtro: verificar coincidencia temática por keywords
-                if not self._keywords_match(question, best['original_question']):
+                # Doble filtro: verificar coincidencia temática por keywords (reducido a 1 palabra en común)
+                if not self._keywords_match(question, best['original_question'], min_common=1):
                     logger.info(
                         f"⚠️ Corrección rechazada por bajo match de keywords: "
                         f"score={best['score']:.4f}, "
