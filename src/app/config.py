@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # LLM Configuration
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: Optional[str] = None
-    GROQ_MODEL: str = "moonshotai/kimi-k2-instruct-0905"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "openai/gpt-4-turbo"
     

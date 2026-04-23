@@ -16,7 +16,7 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
-        value: moonshotai/kimi-k2-instruct-0905
+        value: openai/gpt-oss-120b
 
       - key: EMBEDDING_MODEL
         value: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
