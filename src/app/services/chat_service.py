@@ -221,7 +221,7 @@ class ChatService:
             correction_text, score, corr_id, intent = learned_correction
             context_blocks.append(
                 f"<verified_corrections>\n"
-                f"INSTRUCCIÓN CRÍTICA: La siguiente corrección verificada por un abogado tiene PRIORIDAD MÁXIMA (score: {score:.2f}). Ignora cualquier información en <official_docs> o <web_info> que la contradiga:\n"
+                f"La siguiente información corregida tiene prioridad sobre las demás fuentes. Si contradice otros datos proporcionados, usa esta versión:\n"
                 f"{correction_text}\n"
                 f"</verified_corrections>"
             )
