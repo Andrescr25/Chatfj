@@ -4,6 +4,7 @@ from typing import Optional
 from abc import ABC, abstractmethod
 from groq import Groq
 import requests
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,38 @@ class OpenRouterLLM(BaseLLM):
                 return result['choices'][0]['message']['content'].strip()
             except Exception as e:
                 logger.error(f"Error en OpenRouter API: {e}")
+                raise e
+
+        return await loop.run_in_executor(None, _run)
+
+class GeminiLLM(BaseLLM):
+    def __init__(self, api_key: str, model: str):
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY no configurada")
+        genai.configure(api_key=api_key)
+        # Asegurarnos de usar un modelo válido de Gemini, por defecto 2.5-flash
+        model_name = model if "gemini" in model else "gemini-2.5-flash"
+        self.model = genai.GenerativeModel(model_name)
+
+    async def generate_async(self, prompt: str, system_message: str = None) -> str:
+        loop = asyncio.get_running_loop()
+        
+        def _run() -> str:
+            try:
+                # Gemini maneja el system message diferente (usando instrucciones del sistema)
+                # O simplemente podemos concatenarlo
+                full_prompt = f"{system_message}\n\n{prompt}" if system_message else prompt
+                response = self.model.generate_content(
+                    full_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.3,
+                        max_output_tokens=2000,
+                        top_p=0.9
+                    )
+                )
+                return response.text.strip()
+            except Exception as e:
+                logger.error(f"Error en Gemini API: {e}")
                 raise e
 
         return await loop.run_in_executor(None, _run)

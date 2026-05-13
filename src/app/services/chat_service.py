@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 from src.app.config import settings
 from src.app.schemas.chat import Message, QueryResponse
-from src.app.core.llm.client import BaseLLM, GroqLLM, OpenRouterLLM
+from src.app.core.llm.client import BaseLLM, GroqLLM, OpenRouterLLM, GeminiLLM
 from src.app.core.rag.embeddings import EmbeddingService
 from src.app.core.rag.store import VectorStoreService
 from src.app.core.rag.web_search import WebSearchHelper
@@ -39,7 +39,13 @@ class ChatService:
         self.training_service = TrainingService(self.vector_store)
         
         # 3. LLM Provider
-        if settings.LLM_PROVIDER == "openrouter":
+        if settings.LLM_PROVIDER == "gemini":
+            logger.info(f"🚀 Usando Google Gemini API: {settings.GEMINI_MODEL}")
+            self.llm: BaseLLM = GeminiLLM(
+                api_key=settings.GEMINI_API_KEY,
+                model=settings.GEMINI_MODEL
+            )
+        elif settings.LLM_PROVIDER == "openrouter":
             logger.info(f"🚀 Usando OpenRouter API: {settings.OPENROUTER_MODEL}")
             self.llm: BaseLLM = OpenRouterLLM(
                 api_key=settings.OPENROUTER_API_KEY, 

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "openai/gpt-4-turbo"
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
     
     # RAG / Embeddings
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
