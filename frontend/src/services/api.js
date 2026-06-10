@@ -3,6 +3,8 @@
  * Elimina la duplicación de API_URL en 4 componentes
  */
 
+import { auth } from '../config/firebase';
+
 const API_URL = process.env.REACT_APP_API_URL || '';
 
 class APIService {
@@ -15,12 +17,34 @@ class APIService {
    */
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    
+    // Obtener token de administración fresco desde Firebase de forma asíncrona
+    let adminToken = null;
+    if (auth.currentUser) {
+      try {
+        adminToken = await auth.currentUser.getIdToken();
+      } catch (error) {
+        console.error("Error al obtener ID Token de Firebase:", error);
+      }
+    }
+    
+    // Fallback a localStorage en caso de que la carga asíncrona aún no esté lista
+    if (!adminToken) {
+      adminToken = localStorage.getItem('adminToken');
+    }
+    
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+    
+    if (adminToken) {
+      headers['Authorization'] = `Bearer ${adminToken}`;
+    }
+
     const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
       ...options,
+      headers,
     };
 
     try {

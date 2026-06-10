@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = "config/firebase-adminsdk.json"
     
+    # Admin / Super User Authentication
+    ADMIN_PASSWORD: Optional[str] = "admin123"
+    
     model_config = {
         "env_file": "config/config.env",
         "case_sensitive": True,

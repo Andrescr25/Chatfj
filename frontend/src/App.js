@@ -2,10 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Menu, X, MessageSquarePlus, AlertTriangle, MessageSquare, Clock, Trash2,
   GraduationCap, Scale, CircleDollarSign, Briefcase, User, ExternalLink,
-  Sun, Moon, Send, Loader2, FileText, Bot
+  Sun, Moon, Send, Loader2, FileText, Bot, Lock
 } from 'lucide-react';
 import './App.css';
 import TrainingChat from './TrainingChat';
+import apiService from './services/api';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { auth } from './config/firebase';
 
 function App() {
   const [conversations, setConversations] = useState([
@@ -34,6 +37,107 @@ function App() {
   const API_URL = process.env.REACT_APP_API_URL || '';
 
   const currentConv = conversations.find(c => c.id === currentConvId);
+
+  // Estados de autenticación de súper usuario
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(
+    () => !!localStorage.getItem('adminToken')
+  );
+  const [adminEmailInput, setAdminEmailInput] = useState('');
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Escuchar cambios de autenticación en Firebase
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const idToken = await user.getIdToken();
+          localStorage.setItem('adminToken', idToken);
+          setIsAdminAuthenticated(true);
+        } catch (error) {
+          console.error("Error al renovar token de Firebase:", error);
+        }
+      } else {
+        localStorage.removeItem('adminToken');
+        setIsAdminAuthenticated(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Detectar ruta /admin o /#/admin
+  useEffect(() => {
+    const checkRoute = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      
+      const isRoute = 
+        path === '/admin' || 
+        path === '/admin/' || 
+        hash === '#/admin' || 
+        hash === '#admin' || 
+        params.get('admin') === 'true';
+      
+      setIsAdminRoute(isRoute);
+    };
+
+    checkRoute();
+    window.addEventListener('popstate', checkRoute);
+    window.addEventListener('hashchange', checkRoute);
+    return () => {
+      window.removeEventListener('popstate', checkRoute);
+      window.removeEventListener('hashchange', checkRoute);
+    };
+  }, []);
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    if (!adminEmailInput.trim() || !adminPasswordInput.trim() || isLoggingIn) return;
+    setIsLoggingIn(true);
+    setLoginError('');
+    try {
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        adminEmailInput.trim(),
+        adminPasswordInput.trim()
+      );
+      const idToken = await userCredential.user.getIdToken();
+      localStorage.setItem('adminToken', idToken);
+      setIsAdminAuthenticated(true);
+      setAdminEmailInput('');
+      setAdminPasswordInput('');
+    } catch (error) {
+      console.error(error);
+      let errorMsg = 'Error al iniciar sesión. Verifique sus credenciales.';
+      if (
+        error.code === 'auth/user-not-found' || 
+        error.code === 'auth/wrong-password' || 
+        error.code === 'auth/invalid-credential'
+      ) {
+        errorMsg = 'Correo electrónico o contraseña incorrectos.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMsg = 'Formato de correo electrónico inválido.';
+      }
+      setLoginError(errorMsg);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+    }
+    localStorage.removeItem('adminToken');
+    setIsAdminAuthenticated(false);
+    // Redirigir a la raíz para quitar /admin de la URL
+    window.location.href = '/';
+  };
 
 
 
@@ -398,6 +502,184 @@ function App() {
     return null; // Render nothing while state updates
   }
 
+  if (isAdminRoute && !isAdminAuthenticated) {
+    return (
+      <div className="admin-login-container" style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: theme === 'dark' ? 'radial-gradient(circle, #1e293b 0%, #0f172a 100%)' : 'radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%)',
+        fontFamily: "'Outfit', 'Inter', sans-serif",
+        padding: '20px',
+        color: theme === 'dark' ? '#f8fafc' : '#0f172a'
+      }}>
+        <div className="admin-login-card" style={{
+          background: theme === 'dark' ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.8)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+          borderRadius: '16px',
+          padding: '40px 30px',
+          width: '100%',
+          maxWidth: '400px',
+          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            background: '#1d4ed8',
+            color: '#ffffff',
+            padding: '16px',
+            borderRadius: '50%',
+            marginBottom: '20px',
+            boxShadow: '0 4px 14px 0 rgba(29, 78, 216, 0.4)'
+          }}>
+            <Lock size={32} />
+          </div>
+          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px', textAlign: 'center' }}>
+            Acceso Súper Usuario
+          </h2>
+          <p style={{ 
+            fontSize: '14px', 
+            color: theme === 'dark' ? '#94a3b8' : '#64748b', 
+            marginBottom: '30px', 
+            textAlign: 'center',
+            lineHeight: '1.5'
+          }}>
+            Ingrese sus credenciales de súper usuario para habilitar el Modo Entrenamiento del asistente.
+          </p>
+
+          <form onSubmit={handleAdminLogin} style={{ width: '100%' }}>
+            <div style={{ marginBottom: '20px' }}>
+              <label htmlFor="admin-email" style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '600',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                marginBottom: '8px',
+                color: theme === 'dark' ? '#94a3b8' : '#64748b'
+              }}>
+                Correo Electrónico
+              </label>
+              <input
+                id="admin-email"
+                type="email"
+                value={adminEmailInput}
+                onChange={(e) => setAdminEmailInput(e.target.value)}
+                placeholder="usuario@poder-judicial.go.cr"
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: theme === 'dark' ? '1px solid #475569' : '1px solid #cbd5e1',
+                  background: theme === 'dark' ? '#0f172a' : '#ffffff',
+                  color: theme === 'dark' ? '#f8fafc' : '#0f172a',
+                  fontSize: '16px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.2s',
+                  marginBottom: '15px'
+                }}
+              />
+
+              <label htmlFor="admin-password" style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '600',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                marginBottom: '8px',
+                color: theme === 'dark' ? '#94a3b8' : '#64748b'
+              }}>
+                Contraseña
+              </label>
+              <input
+                id="admin-password"
+                type="password"
+                value={adminPasswordInput}
+                onChange={(e) => setAdminPasswordInput(e.target.value)}
+                placeholder="••••••••"
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  border: theme === 'dark' ? '1px solid #475569' : '1px solid #cbd5e1',
+                  background: theme === 'dark' ? '#0f172a' : '#ffffff',
+                  color: theme === 'dark' ? '#f8fafc' : '#0f172a',
+                  fontSize: '16px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.2s'
+                }}
+              />
+            </div>
+
+            {loginError && (
+              <div style={{
+                color: '#ef4444',
+                fontSize: '13px',
+                marginBottom: '20px',
+                textAlign: 'center',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                padding: '10px',
+                borderRadius: '6px',
+                border: '1px solid rgba(239, 68, 68, 0.2)'
+              }}>
+                ⚠️ {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              style={{
+                width: '100%',
+                padding: '14px',
+                background: '#1d4ed8',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                fontWeight: '600',
+                fontSize: '15px',
+                cursor: isLoggingIn ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 14px 0 rgba(29, 78, 216, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'background-color 0.2s'
+              }}
+            >
+              {isLoggingIn ? (
+                <><Loader2 size={18} className="animate-spin" /> Verificando...</>
+              ) : (
+                'Iniciar Sesión'
+              )}
+            </button>
+          </form>
+
+          <a 
+            href="/"
+            style={{
+              marginTop: '25px',
+              fontSize: '14px',
+              color: '#3b82f6',
+              textDecoration: 'none',
+              fontWeight: '500'
+            }}
+          >
+            ← Volver al Chat Público
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       {/* Mobile Menu Toggle Button */}
@@ -489,16 +771,45 @@ function App() {
             </div>
           </div>
           
-          <button
-            className="training-mode-btn"
-            onClick={() => {
-              setShowTrainingMode(true);
-              setSidebarOpen(false); // Close sidebar on mobile when opening training mode
-            }}
-            title="Modo Entrenamiento"
-          >
-            <GraduationCap size={16} /> Modo Entrenamiento
-          </button>
+          {isAdminAuthenticated && (
+            <>
+              <button
+                className="training-mode-btn"
+                onClick={() => {
+                  setShowTrainingMode(true);
+                  setSidebarOpen(false); // Close sidebar on mobile when opening training mode
+                }}
+                title="Modo Entrenamiento"
+              >
+                <GraduationCap size={16} /> Modo Entrenamiento
+              </button>
+              <button
+                className="admin-logout-btn"
+                onClick={handleAdminLogout}
+                title="Cerrar Sesión Súper Usuario"
+                style={{
+                  marginTop: '8px',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  width: '100%',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.2s',
+                  boxSizing: 'border-box'
+                }}
+              >
+                Cerrar Sesión Admin
+              </button>
+            </>
+          )}
           <p>Chat FJ v2.0</p>
           <p>Poder Judicial CR 🇨🇷</p>
         </div>

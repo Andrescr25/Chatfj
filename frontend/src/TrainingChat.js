@@ -186,9 +186,15 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
+      const adminToken = localStorage.getItem('adminToken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (adminToken) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+
       await fetch(`${API_URL}/feedback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({
           items: [{
             selected_text: '',
@@ -234,9 +240,15 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
+      const adminToken = localStorage.getItem('adminToken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (adminToken) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+
       const response = await fetch(`${API_URL}/feedback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({
           items: [{
             selected_text: pendingFeedback.answer,

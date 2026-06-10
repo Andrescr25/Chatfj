@@ -3,6 +3,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+import firebase_admin
+from firebase_admin import credentials
 
 from src.app.config import settings
 from src.app.utils.logging import logger
@@ -18,6 +20,21 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Iniciando ChatFJ API...")
+    
+    # Inicializar Firebase Admin SDK
+    try:
+        if not firebase_admin._apps:
+            cred_path = settings.FIREBASE_CREDENTIALS_PATH
+            if os.path.exists(cred_path):
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                logger.info(f"✅ Firebase Admin SDK inicializado usando credenciales de: {cred_path}")
+            else:
+                firebase_admin.initialize_app()
+                logger.info("✅ Firebase Admin SDK inicializado con credenciales por defecto de Google Cloud.")
+    except Exception as e:
+        logger.warning(f"⚠️ No se pudo inicializar Firebase Admin SDK (puede requerir credenciales): {e}")
+
     if not settings.PINECONE_API_KEY:
         logger.warning("⚠️ PINECONE_API_KEY no encontrada. La búsqueda vectorial fallará.")
     else:
