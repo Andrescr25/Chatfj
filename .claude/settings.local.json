@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(python src/api.py:*)",
+      "Bash(python3:*)",
+      "Bash(npx localtunnel --port 8000)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(sqlite3:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(pkill:*)",
+      "Bash(npm start)",
+      "Bash(ngrok http:*)",
+      "Bash(./start.sh:*)",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(kill:*)",
+      "Bash(env)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
