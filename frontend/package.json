@@ -10,6 +10,7 @@
     "@testing-library/user-event": "^13.5.0",
     "ajv": "^8.18.0",
     "css-minimizer-webpack-plugin": "^7.0.4",
+    "firebase": "^12.14.0",
     "lucide-react": "^0.563.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
