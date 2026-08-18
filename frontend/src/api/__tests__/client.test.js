@@ -2,7 +2,7 @@
  * Tests para el servicio de API
  */
 
-import APIService from '../api';
+import APIService from '../client';
 
 // Mock de fetch global
 global.fetch = jest.fn();

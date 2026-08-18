@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 import firebase_admin
 import uvicorn
@@ -13,24 +14,22 @@ from src.app.api.v1.api import api_router
 from src.app.config import settings
 from src.app.utils.logging import logger
 
-app = FastAPI(
-    title=settings.APP_NAME,
-    description="Backend para Asistente de Facilitadores Judiciales",
-    version="2.0.0"
-)
 
-# Startup Checks
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Comprobaciones de arranque.
+
+    Se usa lifespan y no @app.on_event, que FastAPI marca como obsoleto.
+    """
     logger.info("🚀 Iniciando ChatFJ API...")
-    
+
     # Inicializar Firebase Admin SDK
     try:
         if not firebase_admin._apps:
             cred_path = settings.FIREBASE_CREDENTIALS_PATH
             if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
-                firebase_admin.initialize_app(cred)
+                firebase_admin.initialize_app(credentials.Certificate(cred_path))
                 logger.info(f"✅ Firebase Admin SDK inicializado usando credenciales de: {cred_path}")
             else:
                 firebase_admin.initialize_app()
@@ -42,7 +41,7 @@ async def startup_event():
         logger.warning("⚠️ PINECONE_API_KEY no encontrada. La búsqueda vectorial fallará.")
     else:
         logger.info(f"✅ PINECONE_API_KEY detectada (Index: {settings.PINECONE_INDEX_NAME})")
-        
+
     if settings.admin_emails:
         logger.info(f"👑 Administradores por configuración: {', '.join(settings.admin_emails)}")
     else:
@@ -57,9 +56,24 @@ async def startup_event():
         logger.info("📦 Sin Firebase Storage: los originales se guardan en disco local.")
 
     if not settings.HUGGINGFACEHUB_API_TOKEN:
-        logger.critical("🚨 HUGGINGFACEHUB_API_TOKEN no encontrada. El sistema intentará usar modelos locales y podría quedarse sin RAM (Error '0').")
+        logger.critical(
+            "🚨 HUGGINGFACEHUB_API_TOKEN no encontrada. El sistema intentará usar "
+            "modelos locales y podría quedarse sin RAM (Error '0')."
+        )
     else:
         logger.info("✅ HUGGINGFACEHUB_API_TOKEN detectada.")
+
+    logger.info(f"🤖 Proveedor de IA configurado: {settings.LLM_PROVIDER}")
+
+    yield
+
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    description="Backend para Asistente de Facilitadores Judiciales",
+    version="2.0.0",
+    lifespan=lifespan,
+)
 
 # CORS Configuration
 # Lista explícita de dominios: con credenciales habilitadas, el comodín "*"

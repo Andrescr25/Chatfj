@@ -4,10 +4,13 @@ import {
   Scale, CircleDollarSign, Briefcase, User, ExternalLink,
   Sun, Moon, Send, Loader2, FileText, Bot, Lock, Settings
 } from 'lucide-react';
-import './App.css';
-import apiService from './services/api';
-import AdminPanel from './AdminPanel';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import './features/chat/chat.css';
+import apiService from './api/client';
+import AdminPanel from './features/admin/AdminPanel';
+import AdminLogin from './features/admin/AdminLogin';
+import ReferenceModal from './features/chat/ReferenceModal';
+import Sidebar from './features/chat/Sidebar';
+import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
 
 function App() {
@@ -37,10 +40,6 @@ function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(
     () => !!localStorage.getItem('adminToken')
   );
-  const [adminEmailInput, setAdminEmailInput] = useState('');
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Escuchar cambios de autenticación en Firebase
   useEffect(() => {
@@ -86,40 +85,6 @@ function App() {
       window.removeEventListener('hashchange', checkRoute);
     };
   }, []);
-
-  const handleAdminLogin = async (e) => {
-    e.preventDefault();
-    if (!adminEmailInput.trim() || !adminPasswordInput.trim() || isLoggingIn) return;
-    setIsLoggingIn(true);
-    setLoginError('');
-    try {
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        adminEmailInput.trim(),
-        adminPasswordInput.trim()
-      );
-      const idToken = await userCredential.user.getIdToken();
-      localStorage.setItem('adminToken', idToken);
-      setIsAdminAuthenticated(true);
-      setAdminEmailInput('');
-      setAdminPasswordInput('');
-    } catch (error) {
-      console.error(error);
-      let errorMsg = 'Error al iniciar sesión. Verifique sus credenciales.';
-      if (
-        error.code === 'auth/user-not-found' || 
-        error.code === 'auth/wrong-password' || 
-        error.code === 'auth/invalid-credential'
-      ) {
-        errorMsg = 'Correo electrónico o contraseña incorrectos.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMsg = 'Formato de correo electrónico inválido.';
-      }
-      setLoginError(errorMsg);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
 
   const handleAdminLogout = async () => {
     try {
@@ -460,317 +425,27 @@ function App() {
   }
 
   if (isAdminRoute && !isAdminAuthenticated) {
-    return (
-      <div className="admin-login-container" style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        background: theme === 'dark' ? 'radial-gradient(circle, #1e293b 0%, #0f172a 100%)' : 'radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%)',
-        fontFamily: "'Outfit', 'Inter', sans-serif",
-        padding: '20px',
-        color: theme === 'dark' ? '#f8fafc' : '#0f172a'
-      }}>
-        <div className="admin-login-card" style={{
-          background: theme === 'dark' ? 'rgba(30, 41, 59, 0.7)' : 'rgba(255, 255, 255, 0.8)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
-          borderRadius: '16px',
-          padding: '40px 30px',
-          width: '100%',
-          maxWidth: '400px',
-          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center'
-        }}>
-          <div style={{
-            background: '#1d4ed8',
-            color: '#ffffff',
-            padding: '16px',
-            borderRadius: '50%',
-            marginBottom: '20px',
-            boxShadow: '0 4px 14px 0 rgba(29, 78, 216, 0.4)'
-          }}>
-            <Lock size={32} />
-          </div>
-          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px', textAlign: 'center' }}>
-            Acceso Súper Usuario
-          </h2>
-          <p style={{ 
-            fontSize: '14px', 
-            color: theme === 'dark' ? '#94a3b8' : '#64748b', 
-            marginBottom: '30px', 
-            textAlign: 'center',
-            lineHeight: '1.5'
-          }}>
-            Ingrese sus credenciales de súper usuario para habilitar el Modo Entrenamiento del asistente.
-          </p>
-
-          <form onSubmit={handleAdminLogin} style={{ width: '100%' }}>
-            <div style={{ marginBottom: '20px' }}>
-              <label htmlFor="admin-email" style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: '600',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                marginBottom: '8px',
-                color: theme === 'dark' ? '#94a3b8' : '#64748b'
-              }}>
-                Correo Electrónico
-              </label>
-              <input
-                id="admin-email"
-                type="email"
-                value={adminEmailInput}
-                onChange={(e) => setAdminEmailInput(e.target.value)}
-                placeholder="usuario@poder-judicial.go.cr"
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  border: theme === 'dark' ? '1px solid #475569' : '1px solid #cbd5e1',
-                  background: theme === 'dark' ? '#0f172a' : '#ffffff',
-                  color: theme === 'dark' ? '#f8fafc' : '#0f172a',
-                  fontSize: '16px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.2s',
-                  marginBottom: '15px'
-                }}
-              />
-
-              <label htmlFor="admin-password" style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: '600',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                marginBottom: '8px',
-                color: theme === 'dark' ? '#94a3b8' : '#64748b'
-              }}>
-                Contraseña
-              </label>
-              <input
-                id="admin-password"
-                type="password"
-                value={adminPasswordInput}
-                onChange={(e) => setAdminPasswordInput(e.target.value)}
-                placeholder="••••••••"
-                required
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  border: theme === 'dark' ? '1px solid #475569' : '1px solid #cbd5e1',
-                  background: theme === 'dark' ? '#0f172a' : '#ffffff',
-                  color: theme === 'dark' ? '#f8fafc' : '#0f172a',
-                  fontSize: '16px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.2s'
-                }}
-              />
-            </div>
-
-            {loginError && (
-              <div style={{
-                color: '#ef4444',
-                fontSize: '13px',
-                marginBottom: '20px',
-                textAlign: 'center',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                padding: '10px',
-                borderRadius: '6px',
-                border: '1px solid rgba(239, 68, 68, 0.2)'
-              }}>
-                ⚠️ {loginError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoggingIn}
-              style={{
-                width: '100%',
-                padding: '14px',
-                background: '#1d4ed8',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: '600',
-                fontSize: '15px',
-                cursor: isLoggingIn ? 'not-allowed' : 'pointer',
-                boxShadow: '0 4px 14px 0 rgba(29, 78, 216, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'background-color 0.2s'
-              }}
-            >
-              {isLoggingIn ? (
-                <><Loader2 size={18} className="animate-spin" /> Verificando...</>
-              ) : (
-                'Iniciar Sesión'
-              )}
-            </button>
-          </form>
-
-          <a 
-            href="/"
-            style={{
-              marginTop: '25px',
-              fontSize: '14px',
-              color: '#3b82f6',
-              textDecoration: 'none',
-              fontWeight: '500'
-            }}
-          >
-            ← Volver al Chat Público
-          </a>
-        </div>
-      </div>
-    );
+    return <AdminLogin theme={theme} />;
   }
 
   return (
     <div className="app">
-      {/* Mobile Menu Toggle Button */}
-      <button 
-        className="mobile-menu-toggle"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        aria-label="Toggle menu"
-      >
-        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
-      </button>
-
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="mobile-overlay"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <button 
-          className="new-chat-btn"
-          onClick={() => {
-            createNewConversation();
-            setSidebarOpen(false); // Close sidebar on mobile when creating new conversation
-          }}
-          disabled={currentConv.messages.length === 0}
-        >
-          <MessageSquarePlus size={16} /> Nueva conversación
-        </button>
-        
-        {currentConv.messages.length === 0 && (
-          <p className="warning"><AlertTriangle size={12} style={{marginRight: '4px', verticalAlign: 'text-bottom'}}/> Escribe algo primero</p>
-        )}
-
-        <div className="conversations-list">
-          {conversations.map(conv => (
-            <div key={conv.id} className="conversation-item-wrapper">
-              <button
-                className={`conversation-item ${conv.id === currentConvId ? 'active' : ''}`}
-                onClick={() => {
-                  setCurrentConvId(conv.id);
-                  setSidebarOpen(false); // Close sidebar on mobile when selecting conversation
-                }}
-              >
-                <div className="conversation-title">
-                  <MessageSquare size={14} style={{marginTop: '2px'}}/> {conv.title}
-                </div>
-                <div className="conversation-date">
-                  <Clock size={12} /> {formatTimestamp(conv.timestamp)}
-                </div>
-              </button>
-              <button
-                className="delete-btn"
-                onClick={() => deleteConversation(conv.id)}
-                disabled={conversations.length === 1}
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="sidebar-footer">
-          {/* Theme Toggle Switch en sidebar (móvil) */}
-          <div className="theme-toggle-container sidebar-theme-toggle">
-            <div 
-              className="theme-toggle-switch"
-              data-theme={theme}
-              onClick={toggleTheme}
-              role="button"
-              aria-label={theme === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  toggleTheme();
-                }
-              }}
-            >
-              <span className="theme-icon sun">
-                <Sun size={14} />
-              </span>
-              <span className="theme-icon moon">
-                <Moon size={14} />
-              </span>
-              <div className="theme-toggle-slider"></div>
-            </div>
-          </div>
-          
-          {isAdminAuthenticated && (
-            <>
-              <button
-                className="training-mode-btn"
-                onClick={() => {
-                  setShowAdminPanel(true);
-                  setSidebarOpen(false);
-                }}
-                title="Panel de administración"
-              >
-                <Settings size={16} /> Panel de administración
-              </button>
-              <button
-                className="admin-logout-btn"
-                onClick={handleAdminLogout}
-                title="Cerrar Sesión Súper Usuario"
-                style={{
-                  marginTop: '8px',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '8px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  width: '100%',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  justifyContent: 'center',
-                  transition: 'background-color 0.2s',
-                  boxSizing: 'border-box'
-                }}
-              >
-                Cerrar Sesión Admin
-              </button>
-            </>
-          )}
-          <p>Chat FJ v2.0</p>
-          <p>Poder Judicial CR 🇨🇷</p>
-        </div>
-      </div>
+      <Sidebar
+        abierta={sidebarOpen}
+        onAbrirCambiar={setSidebarOpen}
+        conversaciones={conversations}
+        conversacionActual={currentConv}
+        conversacionActualId={currentConvId}
+        onSeleccionar={setCurrentConvId}
+        onNueva={createNewConversation}
+        onEliminar={deleteConversation}
+        formatearFecha={formatTimestamp}
+        tema={theme}
+        onCambiarTema={toggleTheme}
+        esAdministrador={isAdminAuthenticated}
+        onAbrirPanel={() => setShowAdminPanel(true)}
+        onCerrarSesion={handleAdminLogout}
+      />
 
       {/* Main Content */}
       <div className="main-content">
@@ -923,66 +598,11 @@ function App() {
         </div>
       </div>
 
-      {/* Modal para mostrar contenido de referencias */}
-      {showReferenceModal && selectedReference && (
-        <div className="reference-modal-overlay" onClick={() => setShowReferenceModal(false)}>
-          <div className="reference-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3><FileText size={20} style={{verticalAlign: 'bottom', marginRight: '8px'}}/> {selectedReference.filename || 'Fuente'}</h3>
-              <button
-                className="modal-close-btn"
-                onClick={() => setShowReferenceModal(false)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-content">
-              {selectedReference.type === 'web' ? (
-                // Si es referencia web, mostrar botón para abrir URL
-                <div className="web-reference-content">
-                  <p className="web-reference-description">
-                    {selectedReference.content || selectedReference.snippet || selectedReference.title}
-                  </p>
-                  <a
-                    href={selectedReference.url || selectedReference.source}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="web-reference-button"
-                  >
-                    <ExternalLink size={16} style={{marginRight: '6px'}}/> Abrir sitio web
-                  </a>
-                </div>
-              ) : (
-                // Si es documento, mostrar contenido
-                (() => {
-                  const content = selectedReference.content || selectedReference.snippet;
-                  // Si el contenido tiene múltiples fragmentos separados por ---
-                  const fragments = content.split('\n\n---\n\n');
+      <ReferenceModal
+        reference={showReferenceModal ? selectedReference : null}
+        onClose={() => setShowReferenceModal(false)}
+      />
 
-                  if (fragments.length > 1) {
-                    return fragments.map((fragment, idx) => (
-                      <div key={idx} className="content-fragment">
-                        {idx > 0 && <div className="fragment-separator">• • •</div>}
-                        <p>{fragment.trim()}</p>
-                      </div>
-                    ));
-                  } else {
-                    return <p>{content}</p>;
-                  }
-                })()
-              )}
-            </div>
-            <div className="modal-footer">
-              <button
-                className="modal-close-footer-btn"
-                onClick={() => setShowReferenceModal(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Panel de administración */}
       {showAdminPanel && (

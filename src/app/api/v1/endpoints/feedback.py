@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from src.app.api.v1.endpoints.chat import get_chat_service
+from src.app.api.v1.deps import get_chat_service
 from src.app.core import audit
 from src.app.core.security import get_current_user
 from src.app.schemas.feedback import FeedbackRequest

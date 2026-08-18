@@ -3,7 +3,7 @@ import {
   UserPlus, Loader2, AlertTriangle, CheckCircle2, ShieldCheck,
   Copy, Ban, CircleCheck, Trash2
 } from 'lucide-react';
-import apiService from './services/api';
+import apiService from '../../api/client';
 
 function formatearFecha(iso) {
   if (!iso) return 'Nunca';

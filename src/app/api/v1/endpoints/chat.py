@@ -2,22 +2,12 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+from src.app.api.v1.deps import get_chat_service
 from src.app.schemas.chat import QueryRequest, QueryResponse
 from src.app.services.chat_service import ChatService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Dependency to get Chat Service (Singleton-ish pattern or plain init)
-# For simplicity in this app, we can instantiate or use a global.
-# Ideally use lru_cache for dependency injection.
-_chat_service = None
-
-def get_chat_service():
-    global _chat_service
-    if _chat_service is None:
-        _chat_service = ChatService()
-    return _chat_service
 
 @router.post("/ask", response_model=QueryResponse)
 async def ask_question(

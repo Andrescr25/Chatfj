@@ -3,21 +3,13 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+from src.app.api.v1.deps import get_admin_service
 from src.app.core.security import CurrentUser, require_admin
 from src.app.schemas.admin import AdminCreateRequest, AdminUpdateRequest
 from src.app.services.admin_service import AdminService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-_admin_service = None
-
-
-def get_admin_service() -> AdminService:
-    global _admin_service
-    if _admin_service is None:
-        _admin_service = AdminService()
-    return _admin_service
 
 
 @router.get("/admins/me")

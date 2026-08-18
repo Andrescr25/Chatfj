@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import {
   X, FileText, Users, GraduationCap, Loader2, AlertTriangle, ShieldCheck
 } from 'lucide-react';
-import './AdminPanel.css';
+import './admin.css';
 import DocumentsManager from './DocumentsManager';
 import AdminUsers from './AdminUsers';
-import TrainingChat from './TrainingChat';
-import apiService from './services/api';
+import TrainingChat from '../training/TrainingChat';
+import apiService from '../../api/client';
 
 function AdminPanel({ onClose }) {
   const [pestana, setPestana] = useState('documentos');

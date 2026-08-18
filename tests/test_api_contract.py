@@ -4,7 +4,7 @@ El cliente y el servidor deben hablar de las mismas rutas.
 Durante meses el frontend llamó a siete rutas que el servidor no tenía
 (/training/ask, /training/feedback, /ask/stream...), heredadas de una versión
 anterior. Nadie se enteró porque fallaban en silencio. Esta prueba compara lo
-que declara FastAPI contra lo que invoca src/services/api.js.
+que declara FastAPI contra lo que invoca src/api/client.js.
 """
 import re
 import sys
@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 RAIZ = Path(__file__).parent.parent
-CLIENTE = RAIZ / "frontend" / "src" / "services" / "api.js"
+CLIENTE = RAIZ / "frontend" / "src" / "api" / "client.js"
 
 PARAMETRO = re.compile(r"\{[^}]+\}|\$\{[^}]+\}")
 

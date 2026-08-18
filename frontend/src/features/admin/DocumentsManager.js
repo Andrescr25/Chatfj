@@ -3,8 +3,9 @@ import {
   Upload, Trash2, RefreshCw, Download, FileText, Loader2,
   AlertTriangle, CheckCircle2, Clock, Database, Eye, X, Search
 } from 'lucide-react';
-import apiService from './services/api';
-import { LEGAL_CATEGORIES } from './config/constants';
+import apiService from '../../api/client';
+import DocumentViewer from './DocumentViewer';
+import { LEGAL_CATEGORIES } from '../../config/constants';
 
 const CATEGORIES = [{ value: 'general', label: 'General' }, ...LEGAL_CATEGORIES];
 
@@ -421,106 +422,19 @@ function DocumentsManager() {
         </div>
       )}
 
-      {viendo && (
-        <div className="ap-modal-fondo" onClick={cerrarVisor}>
-          <div className="ap-visor" onClick={(e) => e.stopPropagation()}>
-            <header className="ap-visor-header">
-              <div className="ap-visor-titulo">
-                <h3>{viendo.title || viendo.filename}</h3>
-                <span>
-                  {viendo.filename}
-                  {contenido ? ` · ${contenido.total_fragmentos.toLocaleString('es-CR')} fragmentos` : ''}
-                </span>
-              </div>
-              <button className="ap-cerrar" onClick={cerrarVisor} title="Cerrar">
-                <X size={20} />
-              </button>
-            </header>
-
-            <p className="ap-visor-nota">
-              Este es el texto tal como quedó indexado, que es lo que el asistente lee al
-              responder. Puede no coincidir con lo que se ve en el archivo original: un PDF
-              escaneado, por ejemplo, deja fragmentos vacíos o con errores de lectura.
-            </p>
-
-            <div className="ap-visor-busqueda">
-              <Search size={15} />
-              <input
-                type="text"
-                value={filtro}
-                onChange={(e) => setFiltro(e.target.value)}
-                placeholder="Buscar dentro de los fragmentos cargados"
-              />
-              {filtro && (
-                <button className="ap-btn" onClick={() => setFiltro('')}>Limpiar</button>
-              )}
-            </div>
-
-            <div className="ap-visor-cuerpo">
-              {errorContenido && (
-                <div className="ap-alerta ap-alerta-error">
-                  <AlertTriangle size={15} />{errorContenido}
-                </div>
-              )}
-
-              {!contenido && cargandoContenido && (
-                <div className="ap-cargando">
-                  <Loader2 size={20} className="ap-girando" /> Leyendo el documento...
-                </div>
-              )}
-
-              {contenido && contenido.total_fragmentos === 0 && (
-                <div className="ap-vacio">
-                  Este documento todavía no tiene fragmentos indexados.
-                </div>
-              )}
-
-              {contenido && fragmentosVisibles.length === 0 && contenido.total_fragmentos > 0 && (
-                <div className="ap-vacio">
-                  Ningún fragmento cargado contiene «{filtro}».
-                </div>
-              )}
-
-              {fragmentosVisibles.map((f) => (
-                <article key={f.id} className="ap-fragmento">
-                  <span className="ap-fragmento-numero">Fragmento {f.numero}</span>
-                  <p>{f.texto || <em>(sin texto: el lector no pudo extraer contenido aquí)</em>}</p>
-                </article>
-              ))}
-            </div>
-
-            <footer className="ap-visor-footer">
-              <span className="ap-celda-secundaria">
-                {contenido
-                  ? `Mostrando ${contenido.fragmentos.length} de ${contenido.total_fragmentos.toLocaleString('es-CR')}`
-                  : ''}
-                {filtro && contenido ? ` · ${fragmentosVisibles.length} coinciden` : ''}
-              </span>
-              <div className="ap-visor-acciones">
-                {contenido && contenido.fragmentos.length < contenido.total_fragmentos && (
-                  <button className="ap-btn" onClick={cargarMas} disabled={cargandoContenido}>
-                    {cargandoContenido
-                      ? <Loader2 size={15} className="ap-girando" />
-                      : <FileText size={15} />}
-                    Cargar más
-                  </button>
-                )}
-                {viendo.storage_path && (
-                  <button className="ap-btn" onClick={() => descargar(viendo)}>
-                    <Download size={15} /> Descargar original
-                  </button>
-                )}
-                <button
-                  className="ap-btn ap-btn-peligro"
-                  onClick={() => { setPorEliminar(viendo); setConfirmacion(''); cerrarVisor(); }}
-                >
-                  <Trash2 size={15} /> Eliminar del índice
-                </button>
-              </div>
-            </footer>
-          </div>
-        </div>
-      )}
+      <DocumentViewer
+        documento={viendo}
+        contenido={contenido}
+        cargando={cargandoContenido}
+        error={errorContenido}
+        filtro={filtro}
+        onFiltrar={setFiltro}
+        fragmentosVisibles={fragmentosVisibles}
+        onCargarMas={cargarMas}
+        onDescargar={descargar}
+        onEliminar={(doc) => { setPorEliminar(doc); setConfirmacion(''); cerrarVisor(); }}
+        onCerrar={cerrarVisor}
+      />
 
       {porEliminar && (
         <div className="ap-modal-fondo" onClick={() => !eliminando && setPorEliminar(null)}>

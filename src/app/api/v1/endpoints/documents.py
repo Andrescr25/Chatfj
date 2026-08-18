@@ -5,24 +5,12 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
-from src.app.api.v1.endpoints.chat import get_chat_service
+from src.app.api.v1.deps import get_document_service
 from src.app.core.security import CurrentUser, require_admin
 from src.app.services.document_service import DocumentService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-_document_service = None
-
-
-def get_document_service() -> DocumentService:
-    global _document_service
-    if _document_service is None:
-        chat_service = get_chat_service()
-        _document_service = DocumentService(
-            chat_service.vector_store, chat_service.embedding_service
-        )
-    return _document_service
 
 
 @router.get("/documents")

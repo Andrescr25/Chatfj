@@ -3,8 +3,8 @@ import {
   X, Send, Check, Pencil, Upload, Loader2,
   GraduationCap, MessageSquare, Clock, BookOpen
 } from 'lucide-react';
-import './TrainingChat.css';
-import apiService from './services/api';
+import './training.css';
+import apiService from '../../api/client';
 
 function TrainingChat({ onClose }) {
   const [messages, setMessages] = useState([]);
