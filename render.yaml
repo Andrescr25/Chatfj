@@ -20,14 +20,12 @@ services:
 
       # Cascada de modelos: si el primero se queda sin cupo, responde el siguiente
       - key: LLM_CHAIN
-        value: groq,omniroute,gemini
-      # OmniRoute: pasarela compatible con OpenAI que enruta entre muchos modelos
-      - key: OMNIROUTE_API_KEY
+        value: groq,cerebras,gemini
+      # Cerebras: respaldo con capa gratuita propia
+      - key: CEREBRAS_API_KEY
         sync: false
-      - key: OMNIROUTE_BASE_URL
-        value: https://cloud.omniroute.online/v1
-      - key: OMNIROUTE_MODEL
-        value: openai/gpt-oss-120b
+      - key: CEREBRAS_MODEL
+        value: gpt-oss-120b
 
       # Índice vectorial real del proyecto (serverless, 1024 dimensiones)
       - key: EMBEDDING_MODEL_NAME

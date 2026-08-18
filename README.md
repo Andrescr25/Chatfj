@@ -41,7 +41,7 @@ los documentos, y los documentos sobre el conocimiento general del modelo.
 | Servidor | Python 3.11, FastAPI + Uvicorn, desplegado en Render |
 | Base vectorial | Pinecone (índice `chatfj-legal-index`) |
 | Embeddings | `intfloat/multilingual-e5-large` vía HuggingFace |
-| Modelo de lenguaje | Cascada configurable: Groq, OmniRoute, Google Gemini, OpenRouter |
+| Modelo de lenguaje | Cascada configurable: Groq, Cerebras, Google Gemini |
 | Autenticación | Firebase Authentication (custom claims) |
 | Catálogo y bitácora | Firestore |
 | Archivos originales | Firebase Storage |
@@ -83,7 +83,7 @@ Hace falta un archivo `config/config.env` (no se versiona) con:
 | Variable | Para qué |
 |---|---|
 | `LLM_CHAIN` | Cascada de modelos, en orden (ver abajo) |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` / `OMNIROUTE_API_KEY` | Llaves de los proveedores |
+| `GROQ_API_KEY` / `CEREBRAS_API_KEY` / `GEMINI_API_KEY` | Llaves de los proveedores |
 | `PINECONE_API_KEY` | Base vectorial |
 | `HUGGINGFACEHUB_API_TOKEN` | Embeddings |
 | `ADMIN_EMAILS` | Correos con acceso garantizado al panel |
@@ -109,23 +109,24 @@ sistema.
 
 Proveedores admitidos: `groq`, `gemini`, `omniroute`, `openrouter`.
 
-### OmniRoute
+### Cerebras (respaldo actual)
 
-[OmniRoute](https://omniroute.online/) es una pasarela compatible con OpenAI que
-enruta entre cientos de proveedores y hace su propia cascada del lado del
-servidor, así que sirve bien como respaldo amplio.
+[Cerebras](https://cloud.cerebras.ai/) tiene capa gratuita propia y API
+compatible con OpenAI, así que sirve de respaldo real cuando Groq se satura.
 
-1. Cree una llave en su panel (o levante una instancia propia).
-2. Configure las variables:
+1. Cree una cuenta y genere una llave en `cloud.cerebras.ai`.
+2. Configure la variable:
 
 ```
-OMNIROUTE_API_KEY=<su llave>
-OMNIROUTE_BASE_URL=https://cloud.omniroute.online/v1   # o http://localhost:20128/v1 si es propia
-OMNIROUTE_MODEL=openai/gpt-oss-120b                    # formato proveedor/modelo
+CEREBRAS_API_KEY=<su llave>
 ```
 
-3. Defina el *combo* de respaldo en el panel de OmniRoute si quiere que además
-   haga su propia cascada interna.
+El modelo está fijado en `gpt-oss-120b` (`CEREBRAS_MODEL`), el mismo que usa
+Groq, para que las respuestas sean consistentes entre proveedores. La capa
+gratuita corre a unos 3000 tokens por segundo con ventana de 65k.
+
+También están implementados `openrouter` y `omniroute` por si algún día se
+quieren en la cascada; ambos usan el mismo cliente compatible con OpenAI.
 
 ## Pruebas y calidad
 

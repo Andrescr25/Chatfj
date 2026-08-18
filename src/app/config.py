@@ -26,8 +26,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
-    # OmniRoute: pasarela compatible con OpenAI que enruta entre muchos
-    # proveedores y hace su propia cascada del lado del servidor.
+    # Cerebras: capa gratuita propia y API compatible con OpenAI.
+    # Sirve de respaldo real cuando el proveedor principal se queda sin cupo.
+    CEREBRAS_API_KEY: Optional[str] = None
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    CEREBRAS_MODEL: str = "gpt-oss-120b"
+
+    # OmniRoute: pasarela compatible con OpenAI. Se deja disponible como opción,
+    # pero exige hospedarla y conectarle llaves propias de otros proveedores.
     OMNIROUTE_API_KEY: Optional[str] = None
     OMNIROUTE_BASE_URL: str = "https://cloud.omniroute.online/v1"
     OMNIROUTE_MODEL: str = "openai/gpt-oss-120b"

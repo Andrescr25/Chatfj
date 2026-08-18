@@ -26,6 +26,14 @@ def _crear(nombre: str) -> BaseLLM:
     if nombre == "gemini":
         return GeminiLLM(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
 
+    if nombre == "cerebras":
+        return OpenAICompatibleLLM(
+            api_key=settings.CEREBRAS_API_KEY,
+            model=settings.CEREBRAS_MODEL,
+            base_url=settings.CEREBRAS_BASE_URL,
+            nombre="cerebras",
+        )
+
     if nombre == "omniroute":
         return OpenAICompatibleLLM(
             api_key=settings.OMNIROUTE_API_KEY,

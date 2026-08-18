@@ -71,12 +71,12 @@ class TestCascada(unittest.IsolatedAsyncioTestCase):
     async def test_sin_cupo_responde_el_siguiente(self):
         """El escenario que pidieron: se acaba el cupo y contesta el respaldo."""
         gemini = ProveedorFalso("gemini", error=error_con_codigo(429, "quota exceeded"))
-        omniroute = ProveedorFalso("omniroute", respuesta="respuesta del respaldo")
+        cerebras = ProveedorFalso("cerebras", respuesta="respuesta del respaldo")
 
-        cascada = FallbackLLM([gemini, omniroute])
+        cascada = FallbackLLM([gemini, cerebras])
         self.assertEqual(await cascada.generate_async("hola"), "respuesta del respaldo")
         self.assertEqual(gemini.llamadas, 1)
-        self.assertEqual(cascada.ultimo_usado, "omniroute")
+        self.assertEqual(cascada.ultimo_usado, "cerebras")
 
     async def test_recorre_toda_la_cascada_hasta_encontrar_uno_que_sirva(self):
         proveedores = [
@@ -117,9 +117,9 @@ class TestCascada(unittest.IsolatedAsyncioTestCase):
 
 class TestOrdenDeLaCascada(unittest.TestCase):
     def test_lee_el_orden_declarado(self):
-        with patch("src.app.config.settings.LLM_CHAIN", "gemini, omniroute ,groq"):
+        with patch("src.app.config.settings.LLM_CHAIN", "groq, cerebras ,gemini"):
             from src.app.config import settings
-            self.assertEqual(settings.llm_chain, ["gemini", "omniroute", "groq"])
+            self.assertEqual(settings.llm_chain, ["groq", "cerebras", "gemini"])
 
     def test_sin_cascada_declarada_usa_el_proveedor_principal(self):
         with patch("src.app.config.settings.LLM_CHAIN", ""), \
@@ -138,18 +138,30 @@ class TestConstruccionDeLaCascada(unittest.TestCase):
         """Falta la llave de uno: se sigue con los demás en vez de no arrancar."""
         from src.app.core.llm.factory import construir_cascada
 
-        with patch("src.app.config.settings.LLM_CHAIN", "omniroute,groq"), \
-             patch("src.app.config.settings.OMNIROUTE_API_KEY", None), \
+        with patch("src.app.config.settings.LLM_CHAIN", "cerebras,groq"), \
+             patch("src.app.config.settings.CEREBRAS_API_KEY", None), \
              patch("src.app.config.settings.GROQ_API_KEY", "llave-de-prueba"):
             cascada = construir_cascada()
         self.assertEqual(len(cascada.proveedores), 1)
         self.assertIn("groq", cascada.nombre)
 
+    def test_cerebras_usa_el_modelo_configurado(self):
+        """El respaldo debe apuntar a gpt-oss-120b y al endpoint de Cerebras."""
+        from src.app.core.llm.factory import construir_cascada
+
+        with patch("src.app.config.settings.LLM_CHAIN", "cerebras"), \
+             patch("src.app.config.settings.CEREBRAS_API_KEY", "llave-cerebras"):
+            cascada = construir_cascada()
+        proveedor = cascada.proveedores[0]
+        self.assertEqual(proveedor.model, "gpt-oss-120b")
+        self.assertEqual(proveedor.base_url, "https://api.cerebras.ai/v1")
+        self.assertEqual(proveedor.nombre, "cerebras:gpt-oss-120b")
+
     def test_sin_ninguna_llave_avisa_con_claridad(self):
         from src.app.core.llm.factory import construir_cascada
 
-        with patch("src.app.config.settings.LLM_CHAIN", "omniroute,gemini"), \
-             patch("src.app.config.settings.OMNIROUTE_API_KEY", None), \
+        with patch("src.app.config.settings.LLM_CHAIN", "cerebras,gemini"), \
+             patch("src.app.config.settings.CEREBRAS_API_KEY", None), \
              patch("src.app.config.settings.GEMINI_API_KEY", None), \
              self.assertRaises(RuntimeError) as ctx:
             construir_cascada()
@@ -158,12 +170,13 @@ class TestConstruccionDeLaCascada(unittest.TestCase):
     def test_arma_la_cascada_completa_cuando_hay_llaves(self):
         from src.app.core.llm.factory import construir_cascada
 
-        with patch("src.app.config.settings.LLM_CHAIN", "omniroute,groq"), \
-             patch("src.app.config.settings.OMNIROUTE_API_KEY", "llave-omni"), \
+        with patch("src.app.config.settings.LLM_CHAIN", "groq,cerebras"), \
+             patch("src.app.config.settings.CEREBRAS_API_KEY", "llave-cerebras"), \
              patch("src.app.config.settings.GROQ_API_KEY", "llave-groq"):
             cascada = construir_cascada()
         self.assertEqual(len(cascada.proveedores), 2)
-        self.assertTrue(cascada.nombre.startswith("omniroute"))
+        self.assertTrue(cascada.nombre.startswith("groq"))
+        self.assertIn("cerebras:gpt-oss-120b", cascada.nombre)
 
 
 if __name__ == "__main__":
