@@ -138,3 +138,82 @@ class VectorStoreService:
                 return []
         
         return await loop.run_in_executor(None, _search)
+
+    # === DOCUMENTS NAMESPACE METHODS (gestión desde el panel) ===
+
+    def upsert_vectors(self, vectors: List[Any], namespace: str = "") -> bool:
+        """Sube un lote de vectores (id, values, metadata) al namespace indicado."""
+        if not self.pinecone_index:
+            logger.error("❌ Pinecone index no disponible para subir vectores.")
+            return False
+        try:
+            self.pinecone_index.upsert(vectors=vectors, namespace=namespace)
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error subiendo vectores a Pinecone: {e}")
+            return False
+
+    def list_vector_ids(self, prefix: str, namespace: str = "") -> Optional[List[str]]:
+        """
+        Lista los IDs de vectores que empiezan con un prefijo.
+
+        Devuelve None si el índice no soporta el listado por prefijo (índices
+        pod-based); en ese caso el llamador debe reconstruir los IDs a partir
+        del catálogo.
+        """
+        if not self.pinecone_index:
+            return None
+        try:
+            ids: List[str] = []
+            for page in self.pinecone_index.list(prefix=prefix, namespace=namespace):
+                if isinstance(page, str):
+                    ids.append(page)
+                else:
+                    ids.extend(page)
+            return ids
+        except Exception as e:
+            logger.warning(f"⚠️ El índice no permite listar por prefijo ('{prefix}'): {e}")
+            return None
+
+    def delete_vectors(self, ids: List[str], namespace: str = "", batch_size: int = 500) -> int:
+        """Elimina vectores por ID en lotes. Devuelve cuántos se solicitaron eliminar."""
+        if not self.pinecone_index or not ids:
+            return 0
+        deleted = 0
+        for i in range(0, len(ids), batch_size):
+            batch = ids[i:i + batch_size]
+            try:
+                self.pinecone_index.delete(ids=batch, namespace=namespace)
+                deleted += len(batch)
+            except Exception as e:
+                logger.error(f"❌ Error eliminando vectores de Pinecone: {e}")
+                raise
+        return deleted
+
+    def fetch_vector_metadata(self, ids: List[str], namespace: str = "") -> Dict[str, Dict]:
+        """Trae la metadata de vectores concretos (para vista previa e inventario)."""
+        if not self.pinecone_index or not ids:
+            return {}
+        try:
+            result = self.pinecone_index.fetch(ids=ids, namespace=namespace)
+            vectors = getattr(result, "vectors", None)
+            if vectors is None and isinstance(result, dict):
+                vectors = result.get("vectors", {})
+            return {
+                vid: (getattr(v, "metadata", None) or (v.get("metadata") if isinstance(v, dict) else {}) or {})
+                for vid, v in (vectors or {}).items()
+            }
+        except Exception as e:
+            logger.error(f"❌ Error consultando metadata en Pinecone: {e}")
+            return {}
+
+    def index_stats(self) -> Dict[str, Any]:
+        """Estadísticas del índice (total de vectores por namespace)."""
+        if not self.pinecone_index:
+            return {}
+        try:
+            stats = self.pinecone_index.describe_index_stats()
+            return stats.to_dict() if hasattr(stats, "to_dict") else dict(stats)
+        except Exception as e:
+            logger.error(f"❌ Error consultando estadísticas de Pinecone: {e}")
+            return {}

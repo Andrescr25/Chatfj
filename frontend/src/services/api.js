@@ -1,6 +1,6 @@
 /**
  * Servicio centralizado de API
- * Elimina la duplicación de API_URL en 4 componentes
+ * Elimina la duplicación de API_URL en varios componentes
  */
 
 import { auth } from '../config/firebase';
@@ -13,31 +13,73 @@ class APIService {
   }
 
   /**
+   * Token de sesión fresco de Firebase.
+   * Importante: los roles viajan dentro del token, así que tras un cambio de
+   * rol hay que forzar la renovación (forceRefresh) para que surta efecto.
+   */
+  async getToken(forceRefresh = false) {
+    if (auth.currentUser) {
+      try {
+        const token = await auth.currentUser.getIdToken(forceRefresh);
+        localStorage.setItem('adminToken', token);
+        return token;
+      } catch (error) {
+        console.error('Error al obtener ID Token de Firebase:', error);
+      }
+    }
+    return localStorage.getItem('adminToken');
+  }
+
+  /**
+   * Extrae el mensaje de error que envía el backend (campo "detail").
+   */
+  async buildError(response) {
+    let detail = '';
+    try {
+      const data = await response.json();
+      detail = this.formatDetail(data.detail ?? data.message);
+    } catch (e) {
+      // respuesta sin cuerpo JSON
+    }
+    const error = new Error(detail || `HTTP error! status: ${response.status}`);
+    error.status = response.status;
+    return error;
+  }
+
+  /**
+   * FastAPI devuelve "detail" como texto en los errores propios, pero como lista
+   * de objetos en los errores de validación (422). Sin esto, la interfaz
+   * mostraba "[object Object]".
+   */
+  formatDetail(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+
+    const limpiar = (msg) => String(msg).replace(/^Value error,\s*/, '');
+
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => (typeof item === 'string' ? item : limpiar(item?.msg || '')))
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    return limpiar(detail.msg || JSON.stringify(detail));
+  }
+
+  /**
    * Método base para hacer llamadas a la API
    */
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
-    
-    // Obtener token de administración fresco desde Firebase de forma asíncrona
-    let adminToken = null;
-    if (auth.currentUser) {
-      try {
-        adminToken = await auth.currentUser.getIdToken();
-      } catch (error) {
-        console.error("Error al obtener ID Token de Firebase:", error);
-      }
-    }
-    
-    // Fallback a localStorage en caso de que la carga asíncrona aún no esté lista
-    if (!adminToken) {
-      adminToken = localStorage.getItem('adminToken');
-    }
-    
+
+    const adminToken = await this.getToken();
+
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers,
     };
-    
+
     if (adminToken) {
       headers['Authorization'] = `Bearer ${adminToken}`;
     }
@@ -51,7 +93,7 @@ class APIService {
       const response = await fetch(url, config);
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw await this.buildError(response);
       }
 
       return await response.json();
@@ -85,97 +127,124 @@ class APIService {
   }
 
   /**
-   * Enviar feedback de entrenamiento
+   * Enviar retroalimentación o corrección de entrenamiento
    */
   async submitFeedback(data) {
-    return this.request('/training/feedback', {
+    return this.request('/feedback', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
+  // ===== Identidad =====
+
   /**
-   * Enviar corrección
+   * Identidad y rol de la persona autenticada
    */
-  async submitCorrection(data) {
-    return this.request('/training/learn-correction', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async whoAmI() {
+    return this.request('/admins/me');
+  }
+
+  // ===== Documentos indexados =====
+
+  async listDocuments(includeDeleted = false) {
+    return this.request(`/documents?include_deleted=${includeDeleted}`);
+  }
+
+  async getDocument(docId) {
+    return this.request(`/documents/${encodeURIComponent(docId)}`);
   }
 
   /**
-   * Subir documento
+   * Sube un documento. La indexación ocurre en segundo plano: hay que consultar
+   * getDocument() para ver el progreso.
    */
-  async uploadDocument(file, category) {
+  async uploadDocument(file, category = 'general', title = '') {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('category', category);
+    formData.append('title', title);
 
-    const url = `${this.baseURL}/training/upload-document`;
-    const response = await fetch(url, {
+    const token = await this.getToken();
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${this.baseURL}/documents`, {
       method: 'POST',
+      headers,
       body: formData,
     });
 
     if (!response.ok) {
-      throw new Error(`Upload error! status: ${response.status}`);
+      throw await this.buildError(response);
     }
 
     return await response.json();
   }
 
-  /**
-   * Obtener estadísticas de entrenamiento
-   */
-  async getTrainingStats() {
-    return this.request('/training/statistics');
-  }
-
-  /**
-   * Obtener estadísticas generales
-   */
-  async getStats() {
-    return this.request('/stats');
-  }
-
-  /**
-   * Obtener estadísticas de caché
-   */
-  async getCacheStats() {
-    return this.request('/cache-stats');
-  }
-
-  /**
-   * Limpiar caché
-   */
-  async clearCache() {
-    return this.request('/clear-cache', {
+  async reindexDocument(docId) {
+    return this.request(`/documents/${encodeURIComponent(docId)}/reindex`, {
       method: 'POST',
     });
   }
 
-  /**
-   * Hacer pregunta de entrenamiento
-   */
-  async askTraining(question, history = []) {
-    return this.request('/training/ask', {
-      method: 'POST',
-      body: JSON.stringify({ question, history }),
+  async deleteDocument(docId) {
+    return this.request(`/documents/${encodeURIComponent(docId)}`, {
+      method: 'DELETE',
     });
   }
 
   /**
-   * Hacer pregunta de entrenamiento con streaming
+   * Descarga el archivo original de un documento indexado
    */
-  async askTrainingStream(question, history = []) {
-    const url = `${this.baseURL}/training/ask/stream`;
-    const response = await fetch(url, {
+  async downloadDocument(docId, filename) {
+    const token = await this.getToken();
+    const response = await fetch(
+      `${this.baseURL}/documents/${encodeURIComponent(docId)}/download`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+
+    if (!response.ok) {
+      throw await this.buildError(response);
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename || 'documento';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  // ===== Administradores =====
+
+  async listAdmins() {
+    return this.request('/admins');
+  }
+
+  async createAdmin({ email, name = '', password = null }) {
+    return this.request('/admins', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, history }),
+      body: JSON.stringify({ email, name, password }),
     });
-    return response;
+  }
+
+  async updateAdmin(uid, changes) {
+    return this.request(`/admins/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    });
+  }
+
+  async removeAdmin(uid) {
+    return this.request(`/admins/${encodeURIComponent(uid)}`, {
+      method: 'DELETE',
+    });
   }
 }
 

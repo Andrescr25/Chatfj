@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Menu, X, MessageSquarePlus, AlertTriangle, MessageSquare, Clock, Trash2,
-  GraduationCap, Scale, CircleDollarSign, Briefcase, User, ExternalLink,
-  Sun, Moon, Send, Loader2, FileText, Bot, Lock
+  Scale, CircleDollarSign, Briefcase, User, ExternalLink,
+  Sun, Moon, Send, Loader2, FileText, Bot, Lock, Settings
 } from 'lucide-react';
 import './App.css';
-import TrainingChat from './TrainingChat';
-import apiService from './services/api';
+import AdminPanel from './AdminPanel';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
 
@@ -19,7 +18,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [selectedReference, setSelectedReference] = useState(null);
-  const [showTrainingMode, setShowTrainingMode] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [typingMessage, setTypingMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [typingSources, setTypingSources] = useState([]);
@@ -776,12 +775,12 @@ function App() {
               <button
                 className="training-mode-btn"
                 onClick={() => {
-                  setShowTrainingMode(true);
-                  setSidebarOpen(false); // Close sidebar on mobile when opening training mode
+                  setShowAdminPanel(true);
+                  setSidebarOpen(false);
                 }}
-                title="Modo Entrenamiento"
+                title="Panel de administración"
               >
-                <GraduationCap size={16} /> Modo Entrenamiento
+                <Settings size={16} /> Panel de administración
               </button>
               <button
                 className="admin-logout-btn"
@@ -1074,9 +1073,9 @@ function App() {
         </div>
       )}
 
-      {/* Modo Entrenamiento */}
-      {showTrainingMode && (
-        <TrainingChat onClose={() => setShowTrainingMode(false)} />
+      {/* Panel de administración */}
+      {showAdminPanel && (
+        <AdminPanel onClose={() => setShowAdminPanel(false)} />
       )}
     </div>
   );

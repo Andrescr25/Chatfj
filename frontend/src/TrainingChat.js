@@ -4,6 +4,7 @@ import {
   GraduationCap, MessageSquare, Clock, BookOpen
 } from 'lucide-react';
 import './TrainingChat.css';
+import apiService from './services/api';
 
 function TrainingChat({ onClose }) {
   const [messages, setMessages] = useState([]);
@@ -186,13 +187,14 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      const adminToken = localStorage.getItem('adminToken');
+      // Token fresco: el rol viaja dentro del token y los de Firebase expiran cada hora
+      const adminToken = await apiService.getToken();
       const headers = { 'Content-Type': 'application/json' };
       if (adminToken) {
         headers['Authorization'] = `Bearer ${adminToken}`;
       }
 
-      await fetch(`${API_URL}/feedback`, {
+      const response = await fetch(`${API_URL}/feedback`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({
@@ -207,6 +209,11 @@ function TrainingChat({ onClose }) {
         })
       });
 
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || 'No se pudo registrar la aprobación.');
+      }
+
       setMessages(prev => [...prev, {
         role: 'system',
         content: 'Respuesta aprobada. El sistema seguirá respondiendo de forma similar.',
@@ -218,6 +225,11 @@ function TrainingChat({ onClose }) {
 
     } catch (error) {
       console.error('Error aprobando:', error);
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: error.message || 'No se pudo registrar la aprobación.',
+        type: 'error'
+      }]);
     } finally {
       setSubmitting(false);
     }
@@ -240,7 +252,8 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      const adminToken = localStorage.getItem('adminToken');
+      // Token fresco: el rol viaja dentro del token y los de Firebase expiran cada hora
+      const adminToken = await apiService.getToken();
       const headers = { 'Content-Type': 'application/json' };
       if (adminToken) {
         headers['Authorization'] = `Bearer ${adminToken}`;
@@ -261,7 +274,12 @@ function TrainingChat({ onClose }) {
         })
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        // 401/403: sesión vencida o cuenta sin permisos de entrenamiento
+        throw new Error(data.detail || 'No se pudo guardar la corrección.');
+      }
 
       setMessages(prev => [...prev, {
         role: 'system',
@@ -274,6 +292,11 @@ function TrainingChat({ onClose }) {
 
     } catch (error) {
       console.error('Error enviando corrección:', error);
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: error.message || 'No se pudo guardar la corrección. Intente de nuevo.',
+        type: 'error'
+      }]);
     } finally {
       setSubmitting(false);
     }

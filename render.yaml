@@ -18,15 +18,28 @@ services:
       - key: GROQ_MODEL
         value: openai/gpt-oss-120b
 
-      - key: EMBEDDING_MODEL
-        value: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+      # Índice vectorial real del proyecto (serverless, 1024 dimensiones)
+      - key: EMBEDDING_MODEL_NAME
+        value: intfloat/multilingual-e5-large
       - key: PINECONE_ENV
         value: us-east-1
       - key: PINECONE_INDEX_NAME
-        value: chatfj-legal-index
+        value: legal-index
       - key: HUGGINGFACEHUB_API_TOKEN
         sync: false
       - key: PINECONE_API_KEY
+        sync: false
+
+      # Panel de administración
+      # Correos con acceso de administración garantizado (respaldo ante pérdida de rol)
+      - key: ADMIN_EMAILS
+        sync: false
+      # Opcional: bucket para guardar los archivos originales de los documentos.
+      # Sin él se usa el disco del contenedor, que Render borra en cada despliegue.
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      # Dominios adicionales permitidos por CORS, separados por coma
+      - key: EXTRA_CORS_ORIGINS
         sync: false
 
     
@@ -42,4 +55,3 @@ services:
           type: web
           name: chat-fj-api
           property: url
-

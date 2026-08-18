@@ -35,14 +35,46 @@ class Settings(BaseSettings):
     
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = "config/firebase-adminsdk.json"
-    
-    # Admin / Super User Authentication
-    ADMIN_PASSWORD: Optional[str] = "admin123"
-    
+    FIREBASE_STORAGE_BUCKET: Optional[str] = None
+
+    # Administración
+    # Correos con acceso de administración aunque no tengan el custom claim.
+    # Sirve para el arranque inicial y para no quedarse nunca fuera del sistema.
+    ADMIN_EMAILS: str = ""
+    # Nombre anterior de la misma variable; se sigue leyendo por compatibilidad.
+    SUPERADMIN_EMAILS: str = ""
+
+    # Ingesta de documentos
+    UPLOAD_DIR: str = "data/uploads"
+    MAX_UPLOAD_MB: int = 25
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+    EMBED_BATCH_SIZE: int = 20
+
+    # CORS: dominios adicionales separados por coma
+    EXTRA_CORS_ORIGINS: str = ""
+
     model_config = {
         "env_file": "config/config.env",
         "case_sensitive": True,
         "extra": "ignore"  # Allow extra env vars
     }
+
+    @property
+    def admin_emails(self) -> List[str]:
+        crudo = self.ADMIN_EMAILS or self.SUPERADMIN_EMAILS
+        return [e.strip().lower() for e in crudo.split(",") if e.strip()]
+
+    @property
+    def cors_origins(self) -> List[str]:
+        base = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "https://chatfj.web.app",
+            "https://chatfj-26458.web.app",
+            "https://chatfj-26458.firebaseapp.com",
+        ]
+        extra = [o.strip() for o in self.EXTRA_CORS_ORIGINS.split(",") if o.strip()]
+        return base + extra
 
 settings = Settings()
