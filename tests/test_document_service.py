@@ -69,8 +69,8 @@ class AlmacenamientoFalso:
 
 class BaseDocumentos(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
-        self.tmp.close()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            self.tmp = tmp
         self.vector_store = VectorStoreFalso()
         self.service = DocumentService(self.vector_store, embedding_service=None)
         self.service.registry = DocumentRegistry(json_path=self.tmp.name)
@@ -120,9 +120,9 @@ class TestSubida(BaseDocumentos):
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_rechaza_archivo_demasiado_grande(self):
-        with patch("src.app.config.settings.MAX_UPLOAD_MB", 1):
-            with self.assertRaises(HTTPException) as ctx:
-                self.service.create_document("grande.pdf", b"x" * (2 * 1024 * 1024), self.actor)
+        with patch("src.app.config.settings.MAX_UPLOAD_MB", 1), \
+             self.assertRaises(HTTPException) as ctx:
+            self.service.create_document("grande.pdf", b"x" * (2 * 1024 * 1024), self.actor)
         self.assertEqual(ctx.exception.status_code, 413)
 
     def test_detecta_documento_duplicado(self):

@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from src.app.api.v1.endpoints import admins, chat, documents, feedback
 
 api_router = APIRouter()

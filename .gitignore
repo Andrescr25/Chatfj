@@ -4,22 +4,15 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
 env/
 ENV/
 *.egg-info/
 dist/
 build/
 
-# Database
+# Bases de datos locales
 *.db
 *.sqlite3
-data/cache.db
-data/training.db
-
-# ChromaDB
-data/chroma/
-data/chroma_db/
 
 # Config con secretos
 config/config.env
@@ -54,18 +47,20 @@ temp/
 data/bloques_*.jsonl
 data/docs/*.pdf
 
+# Artefactos de etapas anteriores: se versiona solo el README que los explica
+data/legacy/*.jsonl
+data/legacy/*.db
+
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
-chatfj-26458-firebase-adminsdk-fbsvc-f50c7baf30.json
 config/*.json
 .firebase/
 frontend/.firebase/
 
-# Entornos virtuales adicionales
+# Entornos virtuales
 .venv/
-venv */
 
 # Documentos subidos desde el panel de administración
 data/uploads/

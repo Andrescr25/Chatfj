@@ -77,7 +77,7 @@ def read_xlsx(file_path: Path) -> str:
                     continue
                 parts = [
                     f"{h}: {str(v).strip()}"
-                    for h, v in zip(headers, row)
+                    for h, v in zip(headers, row, strict=False)
                     if v is not None and str(v).strip()
                 ]
                 if parts:

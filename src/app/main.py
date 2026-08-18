@@ -1,16 +1,17 @@
 import os
+
+import firebase_admin
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import firebase_admin
 from firebase_admin import credentials
 
+from src.app.api.v1.api import api_router
 from src.app.config import settings
 from src.app.utils.logging import logger
-from src.app.api.v1.api import api_router
 
 app = FastAPI(
     title=settings.APP_NAME,

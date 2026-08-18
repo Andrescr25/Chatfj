@@ -1,7 +1,10 @@
-import logging
 import asyncio
-import numpy as np
-from typing import List, Optional, Any
+import logging
+import time
+from typing import List
+
+import requests
+
 try:
     from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
 except ImportError:
@@ -11,8 +14,6 @@ from src.app.config import settings
 
 logger = logging.getLogger(__name__)
 
-import time
-import requests
 
 class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
     """
@@ -84,7 +85,8 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
             result = self.embed_documents([text])
             if result and len(result) > 0:
                 vector = result[0]
-                if vector: return vector # Ensure vector is not empty
+                if vector:
+                    return vector  # Ensure vector is not empty
             
             # Si llegamos aquí, falló.
             # LANZAR ERROR para que store.py lo capture y no llame a Pinecone con basura
@@ -131,7 +133,8 @@ class EmbeddingService:
 
     def _test_api(self):
         """Prueba inicial de conexión con HF."""
-        if not self.client: return
+        if not self.client:
+            return
         try:
             res = self.client.embed_query("test")
             if not res:

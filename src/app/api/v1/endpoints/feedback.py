@@ -1,6 +1,6 @@
+import logging
 from typing import Optional
 
-import logging
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from src.app.api.v1.endpoints.chat import get_chat_service

@@ -1,5 +1,7 @@
-from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field
+from typing import Any, List
+
+from pydantic import BaseModel
+
 
 class Message(BaseModel):
     role: str

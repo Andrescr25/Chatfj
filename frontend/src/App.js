@@ -5,6 +5,7 @@ import {
   Sun, Moon, Send, Loader2, FileText, Bot, Lock, Settings
 } from 'lucide-react';
 import './App.css';
+import apiService from './services/api';
 import AdminPanel from './AdminPanel';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
@@ -22,18 +23,12 @@ function App() {
   const [typingMessage, setTypingMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [typingSources, setTypingSources] = useState([]);
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     // Cargar tema desde localStorage o usar 'light' por defecto
     return localStorage.getItem('theme') || 'light';
   });
   const messagesEndRef = useRef(null);
-
-  // Configuración de API URL
-  // Para desarrollo local: usa proxy (ruta vacía "")
-  // Para producción/Ngrok: usa http://localhost:8000 directo
-  const API_URL = process.env.REACT_APP_API_URL || '';
 
   const currentConv = conversations.find(c => c.id === currentConvId);
 
@@ -244,10 +239,8 @@ function App() {
           role: 'assistant',
           content: fullMessage,
           sources: sources || [],
-          correctionUsageId: metadata?.correction_usage_id || null,
           matchedQuestion: metadata?.matched_question || '',
           learnedFromFeedback: metadata?.learned_from_feedback || false,
-          feedbackStatus: null
         };
 
         setConversations(conversations.map(c =>
@@ -287,16 +280,7 @@ function App() {
         content: m.content
       }));
 
-      const response = await fetch(`${API_URL}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: input,
-          history: history
-        })
-      });
-
-      const data = await response.json();
+      const data = await apiService.ask(input, history);
 
       // Iniciar animación de escritura
       setIsLoading(false);
@@ -321,32 +305,6 @@ function App() {
     setInput(example);
   };
 
-  const handleCorrectionFeedback = async (convId, messageIndex, usageId, result) => {
-    if (!usageId) return;
-    setFeedbackSubmitting(usageId);
-    try {
-      await fetch(`${API_URL}/training/correction-usage/${usageId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ result, source: 'explicit' })
-      });
-
-      setConversations(prevConvs =>
-        prevConvs.map(conv => {
-          if (conv.id !== convId) return conv;
-          const updatedMessages = conv.messages.map((msg, idx) =>
-            idx === messageIndex ? { ...msg, feedbackStatus: result } : msg
-          );
-          return { ...conv, messages: updatedMessages };
-        })
-      );
-    } catch (error) {
-      console.error('Error enviando feedback:', error);
-      alert('No se pudo guardar tu feedback. Intenta de nuevo.');
-    } finally {
-      setFeedbackSubmitting(null);
-    }
-  };
 
   const formatTimestamp = (timestamp) => {
     const now = new Date();
@@ -896,53 +854,6 @@ function App() {
                           </React.Fragment>
                         ))
                     }
-                    {msg.role === 'assistant' && msg.correctionUsageId && (
-                      <div className="message-feedback">
-                        {msg.feedbackStatus ? (
-                          <span className={`feedback-confirmed ${msg.feedbackStatus}`}>
-                            {msg.feedbackStatus === 'success'
-                              ? '✅ ¡Gracias! Aprenderé de tu confirmación.'
-                              : '⚠️ Gracias por avisar, ajustaré esta corrección.'}
-                          </span>
-                        ) : (
-                          <>
-                            <span className="feedback-question">
-                              ¿Esta corrección aprendida te ayudó?
-                            </span>
-                            <div className="feedback-buttons">
-                              <button
-                                className="feedback-button success"
-                                disabled={feedbackSubmitting === msg.correctionUsageId}
-                                onClick={() =>
-                                  handleCorrectionFeedback(
-                                    currentConvId,
-                                    idx,
-                                    msg.correctionUsageId,
-                                    'success'
-                                  )
-                                }
-                              >
-                                Sí, me ayudó
-                              </button>
-                              <button
-                                className="feedback-button fail"
-                                disabled={feedbackSubmitting === msg.correctionUsageId}
-                                onClick={() =>
-                                  handleCorrectionFeedback(
-                                    currentConvId,
-                                    idx,
-                                    msg.correctionUsageId,
-                                    'fail'
-                                  )
-                                }
-                              >
-                                No, faltó precisión
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}

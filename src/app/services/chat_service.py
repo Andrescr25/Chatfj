@@ -1,27 +1,26 @@
+import asyncio
 import logging
 import time
-import asyncio
-import re
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any, List, Optional, Tuple
 
 from src.app.config import settings
-from src.app.schemas.chat import Message, QueryResponse
-from src.app.core.llm.client import BaseLLM, GroqLLM, OpenRouterLLM, GeminiLLM
+from src.app.core.cache import SmartCache
+from src.app.core.llm.client import BaseLLM, GeminiLLM, GroqLLM, OpenRouterLLM
+from src.app.core.prompts.templates import (
+    AUDIENCE_BLOCK,
+    CLARIFICATION_CONTEXT_TEMPLATE,
+    CLARIFICATION_INSTRUCTIONS,
+    CONTINUITY_INSTRUCTIONS,
+    INSTITUTION_POLICY_BLOCK,
+    NEW_QUERY_CONTEXT_TEMPLATE,
+    POPULAR_INSTITUTIONS_BLOCK,
+    SYSTEM_PROMPT,
+)
 from src.app.core.rag.embeddings import EmbeddingService
 from src.app.core.rag.store import VectorStoreService
 from src.app.core.rag.web_search import WebSearchHelper
-from src.app.core.cache import SmartCache
+from src.app.schemas.chat import Message, QueryResponse
 from src.app.services.training_service import TrainingService
-from src.app.core.prompts.templates import (
-    SYSTEM_PROMPT, 
-    CLARIFICATION_CONTEXT_TEMPLATE, 
-    NEW_QUERY_CONTEXT_TEMPLATE,
-    CLARIFICATION_INSTRUCTIONS, 
-    CONTINUITY_INSTRUCTIONS,
-    POPULAR_INSTITUTIONS_BLOCK,
-    INSTITUTION_POLICY_BLOCK,
-    AUDIENCE_BLOCK
-)
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +59,6 @@ class ChatService:
 
     async def _parallel_search(self, question: str, history: List[Message], force_contact: bool) -> Tuple[Any, List[Any], Tuple[str, List[Any]]]:
         """Ejecuta búsquedas de contexto en paralelo."""
-        loop = asyncio.get_running_loop()
-        
         # Task 1: Learned Corrections (async, uses Pinecone namespace)
         learned_task = self.training_service.get_learned_correction_async(question)
         
@@ -205,11 +202,9 @@ class ChatService:
     ) -> Tuple[str, str]:
         """Returns (system_message, user_message) for role separation."""
         
-        is_clarification = False
-        if history:
-            last_user_msg = next((m.content for m in reversed(history) if m.role == 'user'), "")
-            if len(question.split()) < 8 and "eso" in question.lower():
-                is_clarification = True
+        is_clarification = bool(
+            history and len(question.split()) < 8 and "eso" in question.lower()
+        )
 
         context_blocks = []
         

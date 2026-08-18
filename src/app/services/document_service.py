@@ -18,14 +18,13 @@ import tempfile
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
 from src.app.config import settings
-from src.app.core import audit, registry as registry_module
+from src.app.core import audit
 from src.app.core.rag.loaders import SUPPORTED_EXTENSIONS, chunk_text, read_file
 from src.app.core.registry import (
     STATUS_DELETED,

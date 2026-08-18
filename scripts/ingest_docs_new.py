@@ -16,13 +16,14 @@ Modo dry-run (solo muestra cuántos chunks generaría, sin subir nada):
 # NOTA: HuggingFace migró al endpoint router.huggingface.co en 2025.
 # El endpoint antiguo (api-inference.huggingface.co/pipeline) devuelve 404.
 
+import argparse
+import logging
 import os
 import sys
 import time
-import logging
-import argparse
 from pathlib import Path
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
 
 # ──────────────────────────────────────────
 # Parsear argumentos
@@ -129,7 +130,7 @@ def read_xlsx(file_path: Path) -> str:
                     continue
                 # Construir texto descriptivo de la fila
                 row_parts = []
-                for h, v in zip(headers, row):
+                for h, v in zip(headers, row, strict=False):
                     if v is not None and str(v).strip():
                         row_parts.append(f"{h}: {str(v).strip()}")
                 if row_parts:
@@ -261,7 +262,7 @@ def main():
         # Leer contenido
         text = read_file(file_path)
         if not text.strip():
-            logger.warning(f"  ⚠️  Contenido vacío, se omite.")
+            logger.warning("  ⚠️  Contenido vacío, se omite.")
             continue
 
         # Elegir tamaño de chunk según tipo
@@ -305,7 +306,7 @@ def main():
 
             vectors = get_embeddings(hf_embeddings, batch_texts)
             if vectors:
-                upsert_data = list(zip(batch_ids, vectors, batch_metadata))
+                upsert_data = list(zip(batch_ids, vectors, batch_metadata, strict=False))
                 index.upsert(vectors=upsert_data, namespace="")
                 total_chunks_file += len(vectors)
                 logger.info(
@@ -321,12 +322,12 @@ def main():
     # Resumen final
     logger.info("\n" + "=" * 60)
     if args.dry_run:
-        logger.info(f"🔍 DRY-RUN completado.")
+        logger.info("🔍 DRY-RUN completado.")
         logger.info(f"   Archivos a procesar: {len(DOCS_NEW_FILES)}")
         logger.info(f"   Total chunks que se generarían: {total_chunks_global}")
         logger.info("   ➡️  Ejecuta sin --dry-run para subir a Pinecone.")
     else:
-        logger.info(f"🎉 Ingesta completa.")
+        logger.info("🎉 Ingesta completa.")
         logger.info(f"   Archivos procesados : {files_procesados}")
         logger.info(f"   Total chunks subidos: {total_chunks_global}")
         logger.info(f"   Índice Pinecone     : {PINECONE_INDEX_NAME}")

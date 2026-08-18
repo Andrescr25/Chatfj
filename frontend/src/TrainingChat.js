@@ -23,8 +23,6 @@ function TrainingChat({ onClose }) {
   const messagesEndRef = useRef(null);
   const correctionRef = useRef(null);
 
-  const API_URL = process.env.REACT_APP_API_URL || '';
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -155,15 +153,9 @@ function TrainingChat({ onClose }) {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, history: [] })
-      });
-
-      const data = await response.json();
+      const data = await apiService.ask(question, []);
       // Pass original question for feedback linkage
-      data.original_question = question; 
+      data.original_question = question;
 
       setIsLoading(false);
       // Start typing animation
@@ -187,32 +179,16 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      // Token fresco: el rol viaja dentro del token y los de Firebase expiran cada hora
-      const adminToken = await apiService.getToken();
-      const headers = { 'Content-Type': 'application/json' };
-      if (adminToken) {
-        headers['Authorization'] = `Bearer ${adminToken}`;
-      }
-
-      const response = await fetch(`${API_URL}/feedback`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          items: [{
-            selected_text: '',
-            feedback: 'Respuesta aprobada por entrenador',
-            original_question: pendingFeedback.question,
-            full_response: pendingFeedback.answer,
-            intent: 'approval',
-            trainer_name: trainerName || 'anon'
-          }]
-        })
+      await apiService.submitFeedback({
+        items: [{
+          selected_text: '',
+          feedback: 'Respuesta aprobada por entrenador',
+          original_question: pendingFeedback.question,
+          full_response: pendingFeedback.answer,
+          intent: 'approval',
+          trainer_name: trainerName || 'anon'
+        }]
       });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || 'No se pudo registrar la aprobación.');
-      }
 
       setMessages(prev => [...prev, {
         role: 'system',
@@ -252,34 +228,18 @@ function TrainingChat({ onClose }) {
     setSubmitting(true);
 
     try {
-      // Token fresco: el rol viaja dentro del token y los de Firebase expiran cada hora
-      const adminToken = await apiService.getToken();
-      const headers = { 'Content-Type': 'application/json' };
-      if (adminToken) {
-        headers['Authorization'] = `Bearer ${adminToken}`;
-      }
-
-      const response = await fetch(`${API_URL}/feedback`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          items: [{
-            selected_text: pendingFeedback.answer,
-            feedback: correctionText,
-            original_question: pendingFeedback.question,
-            full_response: pendingFeedback.answer,
-            intent: 'correction',
-            trainer_name: trainerName || 'anon'
-          }]
-        })
+      // El servicio de API adjunta un token fresco y traduce los errores del
+      // servidor (401 por sesión vencida, 403 por falta de permisos).
+      const data = await apiService.submitFeedback({
+        items: [{
+          selected_text: pendingFeedback.answer,
+          feedback: correctionText,
+          original_question: pendingFeedback.question,
+          full_response: pendingFeedback.answer,
+          intent: 'correction',
+          trainer_name: trainerName || 'anon'
+        }]
       });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        // 401/403: sesión vencida o cuenta sin permisos de entrenamiento
-        throw new Error(data.detail || 'No se pudo guardar la corrección.');
-      }
 
       setMessages(prev => [...prev, {
         role: 'system',

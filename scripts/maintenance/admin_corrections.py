@@ -1,8 +1,8 @@
 import os
 import sys
-import argparse
+
+from dotenv import find_dotenv, load_dotenv
 from pinecone import Pinecone
-from dotenv import load_dotenv, find_dotenv
 
 # Try to load env vars
 load_dotenv("config/config.env")

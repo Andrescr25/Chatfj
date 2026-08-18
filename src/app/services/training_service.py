@@ -1,7 +1,7 @@
-import logging
 import hashlib
+import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional, Tuple
 
 from src.app.core.rag.store import VectorStoreService
 from src.app.schemas.feedback import FeedbackItemRequest
@@ -38,7 +38,7 @@ class TrainingService:
         "que", "es", "se", "no", "si", "su", "al", "lo", "como", "más", "pero", "sus",
         "le", "ya", "o", "este", "ha", "sí", "yo", "me", "mi", "a", "e", "y", "hay",
         "qué", "cómo", "dónde", "cuándo", "puede", "tiene", "hacer", "hola", "alguna",
-        "forma", "algún", "otro", "otra", "otro", "otros", "estas", "estos", "esas",
+        "forma", "algún", "otro", "otra", "otros", "estas", "estos", "esas",
         "esos", "ser", "son", "fue", "sido", "está", "están", "era", "muy", "también",
         "sin", "sobre", "entre", "cuando", "donde", "todos", "toda", "todo", "mismo",
         "misma", "antes", "después", "desde", "hasta", "porque", "entonces", "cada",

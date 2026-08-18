@@ -114,19 +114,6 @@ class APIService {
   }
 
   /**
-   * Enviar pregunta con streaming
-   */
-  async askStream(question, history = []) {
-    const url = `${this.baseURL}/ask/stream`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, history }),
-    });
-    return response;
-  }
-
-  /**
    * Enviar retroalimentación o corrección de entrenamiento
    */
   async submitFeedback(data) {

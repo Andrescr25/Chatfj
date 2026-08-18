@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+
 from dotenv import load_dotenv
 from pinecone import Pinecone
 
@@ -17,7 +18,6 @@ def diagnose():
     
     api_key = os.getenv("PINECONE_API_KEY")
     index_name = os.getenv("PINECONE_INDEX_NAME")
-    env = os.getenv("PINECONE_ENV")
     
     if not api_key:
         print("❌ PINECONE_API_KEY no encontrada")

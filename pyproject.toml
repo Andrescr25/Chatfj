@@ -1,0 +1,33 @@
+[project]
+name = "chatfj"
+version = "2.0.0"
+description = "Asistente de orientación legal para el Sistema Nacional de Facilitadoras y Facilitadores Judiciales de Costa Rica"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["data", "frontend", "docs", ".venv"]
+
+[tool.ruff.lint]
+# Conjunto deliberadamente acotado: errores reales, imports ordenados y
+# trampas comunes. Se puede ampliar cuando el código esté todo al día.
+select = [
+    "E",    # errores de estilo de pycodestyle
+    "F",    # errores reales de pyflakes (nombres sin definir, imports sin usar)
+    "I",    # orden de imports
+    "B",    # trampas comunes de flake8-bugbear
+    "SIM",  # simplificaciones evidentes
+]
+ignore = [
+    "E501",  # el largo de línea lo maneja el formateador
+    "B008",  # Depends() en los valores por defecto es el patrón de FastAPI
+    "B904",  # el encadenado de excepciones no aporta en los handlers HTTP
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Los scripts operativos cargan variables de entorno antes de importar
+"scripts/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"

@@ -1,6 +1,7 @@
-import logging
 import asyncio
-from typing import List, Tuple, Dict, Any
+import logging
+from typing import Any, Dict, List, Tuple
+
 from duckduckgo_search import DDGS
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,12 @@ class WebSearchHelper:
             results = []
 
             for search_query in search_queries[:1]:  # Solo la primera búsqueda por ahora
-                def _search():
+                # La consulta se liga como argumento: si el bucle llegara a tener
+                # más de una vuelta, la función interna usaría siempre la última.
+                def _search(consulta=search_query):
                     try:
                         with DDGS() as ddgs:
-                            return list(ddgs.text(search_query, max_results=3, region='cr-es'))
+                            return list(ddgs.text(consulta, max_results=3, region='cr-es'))
                     except Exception as e:
                         logger.warning(f"Error en búsqueda web: {e}")
                         return []

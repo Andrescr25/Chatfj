@@ -1,0 +1,64 @@
+name: Pruebas
+
+# Las 37 pruebas del backend y las 16 del frontend existían pero solo corrían
+# cuando alguien se acordaba. Aquí corren en cada cambio.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pruebas-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # la misma que usa Render
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Revisar el código
+        run: ruff check src tests scripts
+
+      - name: Correr las pruebas
+        # Sin llaves de API: las pruebas no deben depender de servicios externos
+        run: python -m unittest discover -s tests -t . -v
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Correr las pruebas
+        run: CI=true npx react-scripts test --watchAll=false

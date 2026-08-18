@@ -1,11 +1,12 @@
-import logging
 import asyncio
+import logging
 import traceback
-from typing import List, Any, Optional, Dict
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 try:
-    from pinecone import Pinecone as PineconeClient
     from langchain_pinecone import PineconeVectorStore
+    from pinecone import Pinecone as PineconeClient
 except ImportError:
     PineconeClient = None
     PineconeVectorStore = None

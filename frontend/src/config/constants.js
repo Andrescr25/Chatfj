@@ -68,22 +68,6 @@ export const UI_TEXT = {
   ERROR_NETWORK: 'Error de conexión',
 };
 
-export const ENDPOINTS = {
-  ASK: '/ask',
-  ASK_STREAM: '/ask/stream',
-  TRAINING: {
-    ASK: '/training/ask',
-    ASK_STREAM: '/training/ask/stream',
-    FEEDBACK: '/training/feedback',
-    CORRECTION: '/training/learn-correction',
-    UPLOAD: '/training/upload-document',
-    STATISTICS: '/training/statistics',
-  },
-  STATS: '/stats',
-  CACHE_STATS: '/cache-stats',
-  CLEAR_CACHE: '/clear-cache',
-};
-
 export const THEME = {
   LIGHT: 'light',
   DARK: 'dark',

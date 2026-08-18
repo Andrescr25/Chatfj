@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
 from pinecone import Pinecone
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,6 +19,7 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "chatfj-legal-index")
 EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
+
 hf_embeddings = HuggingFaceEndpointEmbeddings(
     huggingfacehub_api_token=HF_TOKEN,
     model=EMBEDDING_MODEL
@@ -52,6 +54,8 @@ def chunk_text(text, chunk_size=1000, overlap=200):
     return chunks
 
 import time
+
+
 def get_embeddings(texts):
     for attempt in range(5):
         try:
@@ -95,7 +99,7 @@ def main():
             
             vectors = get_embeddings(batch_texts)
             if vectors:
-                upsert_data = list(zip(batch_ids, vectors, batch_metadata))
+                upsert_data = list(zip(batch_ids, vectors, batch_metadata, strict=False))
                 index.upsert(vectors=upsert_data, namespace="")
                 total_chunks += len(vectors)
                 logger.info(f" - Subidos {len(vectors)} fragmentos (Total: {total_chunks})")
