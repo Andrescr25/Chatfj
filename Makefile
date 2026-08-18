@@ -1,4 +1,4 @@
-.PHONY: ayuda install dev front test test-back test-front lint format build deploy-front admin backfill clean
+.PHONY: ayuda install dev front test test-back test-front lint format build deploy-front admin backfill inventario clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -53,6 +53,9 @@ admin:  ## Da acceso de administración. Uso: make admin EMAIL=persona@correo.cr
 
 backfill:  ## Reconcilia el catálogo de documentos con Pinecone
 	$(PY) scripts/backfill_documents_registry.py
+
+inventario:  ## Regenera docs/corpus.md con los documentos indexados
+	$(PY) scripts/export_corpus_inventory.py
 
 clean:  ## Borra archivos temporales
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

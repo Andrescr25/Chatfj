@@ -122,6 +122,7 @@ make deploy-front
 make admin EMAIL=persona@correo.cr        # dar acceso de administración
 make backfill                             # reconciliar el catálogo con Pinecone
 python scripts/ingest_documents.py data/docs --dry-run
+make inventario                           # regenerar docs/corpus.md
 python scripts/diagnose_rag.py            # diagnóstico de la búsqueda vectorial
 python scripts/maintenance/admin_corrections.py --help
 ```
@@ -130,6 +131,11 @@ python scripts/maintenance/admin_corrections.py --help
 
 - [Panel de administración](docs/panel-administracion.md): cómo se gestiona el
   acceso, cómo se suben y eliminan documentos, y cómo se entrena el asistente.
+- [Inventario del corpus](docs/corpus.md): con qué documentos responde el
+  asistente. Se regenera con `make inventario`.
+
+Los archivos del corpus no se versionan (suman decenas de MB); el inventario es
+el registro público de qué información se usó.
 
 ## Transparencia
 

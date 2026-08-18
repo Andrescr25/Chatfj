@@ -44,6 +44,8 @@ frontend/.env.production.local
 temp/
 
 # Datos procesados (muy pesados)
+# El corpus no se versiona: el registro público de qué se usó está en
+# docs/corpus.md, que se genera del catálogo real del sistema.
 data/bloques_*.jsonl
 data/docs/*.pdf
 
