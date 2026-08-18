@@ -28,8 +28,9 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # En una bifurcación del repositorio no tiene sentido: duplicaría los pings
-    if: ${{ !github.event.repository.fork }}
+    # Sin condición de ejecución a propósito: este repositorio es una bifurcación
+    # del institucional, y un `if: !fork` lo dejó saltándose en silencio, que es
+    # peor que un ping de más.
     steps:
       - name: Consultar el estado del backend
         env:
