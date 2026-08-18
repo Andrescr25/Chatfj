@@ -44,19 +44,36 @@ class DocumentStorage:
         return Path(settings.UPLOAD_DIR) / f"{doc_id}{ext}"
 
     def save(self, doc_id: str, filename: str, content: bytes) -> Dict[str, str]:
+        aviso = ""
+
         if self.bucket:
             try:
                 blob_path = f"documentos/{doc_id}/{filename}"
                 blob = self.bucket.blob(blob_path)
                 blob.upload_from_string(content)
-                return {"storage_backend": BACKEND_FIREBASE, "storage_path": blob_path}
+                return {
+                    "storage_backend": BACKEND_FIREBASE,
+                    "storage_path": blob_path,
+                    "storage_warning": "",
+                }
             except Exception as e:
+                # Degradar en silencio sería peor: en Render el disco es efímero,
+                # así que el original se perdería en el siguiente despliegue.
                 logger.error(f"❌ Error subiendo a Firebase Storage, se usa disco local: {e}")
+                aviso = (
+                    "El archivo original no se pudo guardar en Firebase Storage "
+                    f"({e}). Quedó en el disco del servidor, que se borra en cada "
+                    "despliegue: el documento seguirá indexado, pero no se podrá reindexar."
+                )
 
         path = self._local_path(doc_id, filename)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
-        return {"storage_backend": BACKEND_LOCAL, "storage_path": str(path)}
+        return {
+            "storage_backend": BACKEND_LOCAL,
+            "storage_path": str(path),
+            "storage_warning": aviso,
+        }
 
     def load(self, record: Dict) -> Optional[bytes]:
         backend = record.get("storage_backend")

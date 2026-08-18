@@ -4,7 +4,6 @@ import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
-import PyPDF2
 from pinecone import Pinecone
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,7 +28,11 @@ def read_pdf(file_path):
         # Use str(Path) directly, avoid decoding issues in Mac APFS
         safe_path = Path(file_path).resolve()
         with open(safe_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                from PyPDF2 import PdfReader
+            reader = PdfReader(f)
             for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:

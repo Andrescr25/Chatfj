@@ -272,12 +272,12 @@ function DocumentsManager() {
         <Upload size={22} />
         <div>
           <strong>{archivo ? archivo.name : 'Arrastre un documento o haga clic para elegirlo'}</strong>
-          <p>PDF, Word, Excel o texto. Máximo 25 MB.</p>
+          <p>PDF, Word (.docx), Excel (.xlsx) o texto. Máximo 25 MB.</p>
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf,.docx,.txt,.md,.xlsx,.xls"
+          accept=".pdf,.docx,.txt,.md,.xlsx"
           onChange={(e) => seleccionarArchivo(e.target.files?.[0])}
           hidden
         />
@@ -371,6 +371,11 @@ function DocumentsManager() {
                         </span>
                         {doc.error && (
                           <span className="ap-error-texto" title={doc.error}>{doc.error}</span>
+                        )}
+                        {doc.storage_warning && (
+                          <span className="ap-aviso-texto" title={doc.storage_warning}>
+                            Original no respaldado
+                          </span>
                         )}
                       </div>
                     </div>

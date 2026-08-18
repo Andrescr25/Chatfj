@@ -11,16 +11,30 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".txt", ".md", ".xlsx", ".xls")
+# .xls (formato viejo de Excel) queda fuera: openpyxl no lo lee y aceptarlo
+# solo llevaría a un error al indexar.
+SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".txt", ".md", ".xlsx")
+
+
+def _pdf_reader(file_handle):
+    """
+    Lector de PDF.
+
+    El proyecto declara pypdf en requirements.txt; PyPDF2 es su antecesor y solo
+    está presente en entornos viejos. Se intenta el primero y se cae al segundo.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # entornos anteriores a la migración
+        from PyPDF2 import PdfReader
+    return PdfReader(file_handle)
 
 
 def read_pdf(file_path: Path) -> str:
-    import PyPDF2
-
     text = ""
     try:
         with open(file_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
+            reader = _pdf_reader(f)
             for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:
@@ -89,7 +103,7 @@ def read_file(file_path: Path) -> str:
         return read_pdf(file_path)
     if ext == ".docx":
         return read_docx(file_path)
-    if ext in (".xlsx", ".xls"):
+    if ext == ".xlsx":
         return read_xlsx(file_path)
     if ext in (".txt", ".md"):
         return read_txt(file_path)

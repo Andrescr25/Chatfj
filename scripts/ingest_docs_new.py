@@ -73,11 +73,14 @@ ID_PREFIX = "docs_new__"
 
 def read_pdf(file_path: Path) -> str:
     """Lee texto de un archivo PDF."""
-    import PyPDF2
     text = ""
     try:
         with open(file_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                from PyPDF2 import PdfReader
+            reader = PdfReader(f)
             for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:
