@@ -5,7 +5,8 @@ from typing import Any, List, Optional, Tuple
 
 from src.app.config import settings
 from src.app.core.cache import SmartCache
-from src.app.core.llm.client import BaseLLM, GeminiLLM, GroqLLM, OpenRouterLLM
+from src.app.core.llm.client import BaseLLM
+from src.app.core.llm.factory import construir_cascada
 from src.app.core.prompts.templates import (
     AUDIENCE_BLOCK,
     CLARIFICATION_CONTEXT_TEMPLATE,
@@ -37,25 +38,8 @@ class ChatService:
         # 2. Training Service (uses Pinecone namespace 'corrections')
         self.training_service = TrainingService(self.vector_store)
         
-        # 3. LLM Provider
-        if settings.LLM_PROVIDER == "gemini":
-            logger.info(f"🚀 Usando Google Gemini API: {settings.GEMINI_MODEL}")
-            self.llm: BaseLLM = GeminiLLM(
-                api_key=settings.GEMINI_API_KEY,
-                model=settings.GEMINI_MODEL
-            )
-        elif settings.LLM_PROVIDER == "openrouter":
-            logger.info(f"🚀 Usando OpenRouter API: {settings.OPENROUTER_MODEL}")
-            self.llm: BaseLLM = OpenRouterLLM(
-                api_key=settings.OPENROUTER_API_KEY, 
-                model=settings.OPENROUTER_MODEL
-            )
-        else:
-            logger.info(f"🚀 Usando Groq API: {settings.GROQ_MODEL}")
-            self.llm: BaseLLM = GroqLLM(
-                api_key=settings.GROQ_API_KEY, 
-                model=settings.GROQ_MODEL
-            )
+        # 3. Cascada de modelos de lenguaje
+        self.llm: BaseLLM = construir_cascada()
 
     async def _parallel_search(self, question: str, history: List[Message], force_contact: bool) -> Tuple[Any, List[Any], Tuple[str, List[Any]]]:
         """Ejecuta búsquedas de contexto en paralelo."""
@@ -166,7 +150,7 @@ class ChatService:
             logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.75).")
 
         # 5. Generate Answer
-        logger.info(f"🤖 Generando respuesta con {self.llm.__class__.__name__}...")
+        logger.info(f"🤖 Generando respuesta con: {self.llm.nombre}")
         system_msg, user_msg = self._construct_prompt(
             question, history, learned_correction, 
             final_docs_content, web_info

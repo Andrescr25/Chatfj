@@ -63,7 +63,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("✅ HUGGINGFACEHUB_API_TOKEN detectada.")
 
-    logger.info(f"🤖 Proveedor de IA configurado: {settings.LLM_PROVIDER}")
+    cascada = " → ".join(settings.llm_chain)
+    logger.info(f"🤖 Cascada de modelos configurada: {cascada}")
+    if len(settings.llm_chain) == 1:
+        logger.warning(
+            "⚠️ Sin respaldo de modelo: si el proveedor se queda sin cupo, el chat deja "
+            "de responder. Configure LLM_CHAIN con más de un proveedor."
+        )
 
     yield
 

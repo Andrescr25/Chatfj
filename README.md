@@ -41,7 +41,7 @@ los documentos, y los documentos sobre el conocimiento general del modelo.
 | Servidor | Python 3.11, FastAPI + Uvicorn, desplegado en Render |
 | Base vectorial | Pinecone (índice `chatfj-legal-index`) |
 | Embeddings | `intfloat/multilingual-e5-large` vía HuggingFace |
-| Modelo de lenguaje | Groq (`openai/gpt-oss-120b`) o Google Gemini, intercambiables |
+| Modelo de lenguaje | Cascada configurable: Groq, OmniRoute, Google Gemini, OpenRouter |
 | Autenticación | Firebase Authentication (custom claims) |
 | Catálogo y bitácora | Firestore |
 | Archivos originales | Firebase Storage |
@@ -82,14 +82,50 @@ Hace falta un archivo `config/config.env` (no se versiona) con:
 
 | Variable | Para qué |
 |---|---|
-| `LLM_PROVIDER` | `groq` o `gemini` |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` | Llave del proveedor elegido |
+| `LLM_CHAIN` | Cascada de modelos, en orden (ver abajo) |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` / `OMNIROUTE_API_KEY` | Llaves de los proveedores |
 | `PINECONE_API_KEY` | Base vectorial |
 | `HUGGINGFACEHUB_API_TOKEN` | Embeddings |
 | `ADMIN_EMAILS` | Correos con acceso garantizado al panel |
 | `FIREBASE_STORAGE_BUCKET` | `chatfj-26458.firebasestorage.app` |
 
 Y `config/firebase-adminsdk.json` con las credenciales de servicio de Firebase.
+
+## Cascada de modelos
+
+Un solo proveedor es un punto único de falla: cuando a Gemini se le agotaron los
+créditos, el chat dejó de responder por completo aunque las otras llaves
+funcionaban. Por eso los proveedores se declaran en orden y el primero que
+responda gana:
+
+```
+LLM_CHAIN=groq,omniroute,gemini
+```
+
+Si un proveedor devuelve 429, se queda sin cupo, se satura o tarda demasiado, la
+petición pasa al siguiente sin que la persona usuaria note nada. Los proveedores
+sin llave configurada se omiten con un aviso en el arranque, no tumban el
+sistema.
+
+Proveedores admitidos: `groq`, `gemini`, `omniroute`, `openrouter`.
+
+### OmniRoute
+
+[OmniRoute](https://omniroute.online/) es una pasarela compatible con OpenAI que
+enruta entre cientos de proveedores y hace su propia cascada del lado del
+servidor, así que sirve bien como respaldo amplio.
+
+1. Cree una llave en su panel (o levante una instancia propia).
+2. Configure las variables:
+
+```
+OMNIROUTE_API_KEY=<su llave>
+OMNIROUTE_BASE_URL=https://cloud.omniroute.online/v1   # o http://localhost:20128/v1 si es propia
+OMNIROUTE_MODEL=openai/gpt-oss-120b                    # formato proveedor/modelo
+```
+
+3. Defina el *combo* de respaldo en el panel de OmniRoute si quiere que además
+   haga su propia cascada interna.
 
 ## Pruebas y calidad
 

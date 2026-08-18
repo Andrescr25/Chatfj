@@ -13,13 +13,24 @@ class Settings(BaseSettings):
     # Paths
     
     # LLM Configuration
+    # Proveedor principal. Se conserva por compatibilidad: si LLM_CHAIN está
+    # vacío, la cascada es solo este.
     LLM_PROVIDER: str = "groq"
+    # Cascada de respaldo, en orden y separada por comas (ej.: "gemini,omniroute,groq").
+    # Si un proveedor se queda sin cupo, la respuesta la da el siguiente.
+    LLM_CHAIN: str = ""
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "openai/gpt-4-turbo"
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # OmniRoute: pasarela compatible con OpenAI que enruta entre muchos
+    # proveedores y hace su propia cascada del lado del servidor.
+    OMNIROUTE_API_KEY: Optional[str] = None
+    OMNIROUTE_BASE_URL: str = "https://cloud.omniroute.online/v1"
+    OMNIROUTE_MODEL: str = "openai/gpt-oss-120b"
 
     
     # RAG / Embeddings
@@ -60,6 +71,18 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore"  # Allow extra env vars
     }
+
+    @property
+    def llm_chain(self) -> List[str]:
+        """Proveedores en el orden en que se deben intentar."""
+        crudo = self.LLM_CHAIN.strip() or self.LLM_PROVIDER
+        vistos, orden = set(), []
+        for nombre in crudo.split(","):
+            nombre = nombre.strip().lower()
+            if nombre and nombre not in vistos:
+                vistos.add(nombre)
+                orden.append(nombre)
+        return orden
 
     @property
     def admin_emails(self) -> List[str]:
