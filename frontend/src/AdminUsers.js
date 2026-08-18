@@ -210,7 +210,7 @@ function AdminUsers({ me }) {
               <col className="ap-col-estado-admin" />
               <col className="ap-col-ingreso" />
               <col className="ap-col-invita" />
-              <col className="ap-col-acciones" />
+              <col className="ap-col-acciones-admin" />
             </colgroup>
             <thead>
               <tr>
@@ -254,7 +254,7 @@ function AdminUsers({ me }) {
                     <td className="ap-celda-secundaria ap-col-oculta-md">
                       <span title={admin.invited_by}>{admin.invited_by || '—'}</span>
                     </td>
-                    <td>
+                    <td className="ap-celda-acciones">
                       <div className="ap-acciones">
                         <button
                           title={motivo || (admin.disabled ? 'Habilitar' : 'Deshabilitar')}

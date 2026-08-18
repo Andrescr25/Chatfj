@@ -47,6 +47,24 @@ async def get_document(
     return service.get_document(doc_id)
 
 
+@router.get("/documents/{doc_id}/content")
+async def get_document_content(
+    doc_id: str,
+    offset: int = 0,
+    limit: int = 20,
+    user: CurrentUser = Depends(require_admin),
+    service: DocumentService = Depends(get_document_service),
+):
+    """
+    Texto indexado del documento, por fragmentos.
+
+    Muestra lo que el asistente lee realmente al responder, que no siempre
+    coincide con lo que se ve en el PDF (un PDF escaneado, por ejemplo, puede
+    haber quedado sin texto útil).
+    """
+    return service.get_document_content(doc_id, offset=offset, limit=limit)
+
+
 @router.post("/documents", status_code=202)
 async def upload_document(
     background_tasks: BackgroundTasks,

@@ -74,6 +74,20 @@ y título, y el sistema:
 La indexación corre en segundo plano; la tabla muestra el avance
 (`indexando 120/340`) y refresca sola cada 3 segundos.
 
+### Ver el contenido
+
+Al hacer clic en el nombre de un documento (o en el ícono del ojo) se abre el
+visor con **el texto tal como quedó indexado**, fragmento por fragmento. Es lo
+que el asistente lee al responder, que no siempre coincide con lo que se ve en
+el archivo original: un PDF escaneado sin reconocimiento de texto deja
+fragmentos vacíos o con errores de lectura, y eso se detecta aquí a simple
+vista.
+
+El visor carga de 20 en 20 fragmentos, permite buscar dentro de los que ya
+cargó, y ofrece descargar el original o eliminar el documento sin salir de él.
+Funciona también con los documentos de la ingesta inicial, porque lee del
+índice y no del archivo.
+
 ### Eliminar
 
 Se piden dos confirmaciones: el botón y escribir el nombre exacto del archivo.
@@ -149,6 +163,7 @@ Todos requieren rol de administrador.
 | DELETE | `/api/v1/admins/{uid}` |
 | GET | `/api/v1/documents` |
 | GET | `/api/v1/documents/{id}` |
+| GET | `/api/v1/documents/{id}/content` |
 | POST | `/api/v1/documents` |
 | POST | `/api/v1/documents/{id}/reindex` |
 | DELETE | `/api/v1/documents/{id}` |

@@ -184,6 +184,15 @@ class APIService {
     return await response.json();
   }
 
+  /**
+   * Texto indexado del documento, por fragmentos (lo que el asistente lee)
+   */
+  async getDocumentContent(docId, offset = 0, limit = 20) {
+    return this.request(
+      `/documents/${encodeURIComponent(docId)}/content?offset=${offset}&limit=${limit}`
+    );
+  }
+
   async reindexDocument(docId) {
     return this.request(`/documents/${encodeURIComponent(docId)}/reindex`, {
       method: 'POST',

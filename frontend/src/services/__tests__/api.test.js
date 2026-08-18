@@ -184,6 +184,20 @@ describe('APIService', () => {
         .rejects.toThrow('Ese mismo archivo ya está indexado.');
     });
 
+    it('debe pedir el contenido paginado de un documento', async () => {
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ total_fragmentos: 65, fragmentos: [] }),
+      });
+
+      await APIService.getDocumentContent('ley-rac-legacy', 20, 20);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/documents/ley-rac-legacy/content?offset=20&limit=20'),
+        expect.any(Object)
+      );
+    });
+
     it('debe eliminar un documento por su id', async () => {
       fetch.mockResolvedValueOnce({
         ok: true,

@@ -42,6 +42,9 @@ class VectorStoreFalso:
         self.subidos.extend(vectors)
         return True
 
+    def fetch_vector_metadata(self, ids, namespace=""):
+        return {vid: {"text": f"contenido de {vid}"} for vid in ids}
+
     def index_stats(self):
         return {"namespaces": {"": {"vector_count": 100}}}
 
@@ -190,6 +193,49 @@ class TestEliminacion(BaseDocumentos):
         with self.assertRaises(HTTPException) as ctx:
             self.service.delete_document("no-existe", self.actor)
         self.assertEqual(ctx.exception.status_code, 404)
+
+
+class TestVisorDeContenido(BaseDocumentos):
+    def _documento_con_fragmentos(self, chunks=25):
+        record = self.service.create_document("ley.pdf", b"contenido", self.actor)
+        self.service.registry.update(
+            record["doc_id"], status=STATUS_INDEXED, chunks=chunks, chunks_total=chunks
+        )
+        prefix = record["vector_prefix"]
+        # Pinecone devuelve los IDs en orden arbitrario, no numérico:
+        # se desordenan a propósito para comprobar que el servicio los ordena.
+        desordenados = [10, 2, 24, 0, 7]
+        indices = [i for i in desordenados if i < chunks]
+        indices += [i for i in range(chunks) if i not in indices]
+        self.vector_store.ids_por_prefijo[prefix] = [f"{prefix}{i}" for i in indices]
+        return self.service.get_document(record["doc_id"])
+
+    def test_devuelve_los_fragmentos_en_orden(self):
+        doc = self._documento_con_fragmentos(chunks=25)
+        contenido = self.service.get_document_content(doc["doc_id"], offset=0, limit=5)
+        numeros = [f["numero"] for f in contenido["fragmentos"]]
+        self.assertEqual(numeros, [1, 2, 3, 4, 5])
+        self.assertTrue(contenido["fragmentos"][0]["id"].endswith("::0"))
+        self.assertTrue(contenido["fragmentos"][4]["id"].endswith("::4"))
+
+    def test_pagina_desde_el_desplazamiento_indicado(self):
+        doc = self._documento_con_fragmentos(chunks=25)
+        contenido = self.service.get_document_content(doc["doc_id"], offset=20, limit=10)
+        self.assertEqual(contenido["total_fragmentos"], 25)
+        self.assertEqual([f["numero"] for f in contenido["fragmentos"]], [21, 22, 23, 24, 25])
+
+    def test_limita_el_tamano_de_pagina(self):
+        """Un límite enorme no debe traer un documento entero de golpe."""
+        doc = self._documento_con_fragmentos(chunks=25)
+        contenido = self.service.get_document_content(doc["doc_id"], offset=0, limit=5000)
+        self.assertEqual(contenido["limit"], 50)
+
+    def test_documento_eliminado_no_se_puede_leer(self):
+        doc = self._documento_con_fragmentos()
+        self.service.delete_document(doc["doc_id"], self.actor)
+        with self.assertRaises(HTTPException) as ctx:
+            self.service.get_document_content(doc["doc_id"])
+        self.assertEqual(ctx.exception.status_code, 400)
 
 
 class TestReindexado(BaseDocumentos):

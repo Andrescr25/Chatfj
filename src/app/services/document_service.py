@@ -331,6 +331,62 @@ class DocumentService:
             "fragmentos_eliminados": eliminados,
         }
 
+    # ---------- Lectura del contenido indexado ----------
+
+    def _sorted_vector_ids(self, record: Dict[str, Any]) -> List[str]:
+        """IDs del documento ordenados por número de fragmento."""
+        ids = self._resolve_vector_ids(record)
+
+        def orden(vid: str) -> int:
+            cola = vid.rsplit("::", 1)[-1] if "::" in vid else vid.rsplit("_", 1)[-1]
+            try:
+                return int(cola)
+            except ValueError:
+                return 0
+
+        return sorted(ids, key=orden)
+
+    def get_document_content(self, doc_id: str, offset: int = 0, limit: int = 20) -> Dict[str, Any]:
+        """
+        Devuelve el texto indexado del documento, fragmento por fragmento.
+
+        La fuente es el propio índice, no el archivo original: así el panel
+        muestra exactamente lo que el asistente lee cuando responde. Por eso
+        también funciona con los documentos heredados, que no tienen original.
+        """
+        record = self.get_document(doc_id)
+        if record.get("status") == STATUS_DELETED:
+            raise HTTPException(status_code=400, detail="El documento fue eliminado.")
+
+        limit = max(1, min(limit, 50))
+        offset = max(0, offset)
+
+        ids = self._sorted_vector_ids(record)
+        total = len(ids)
+        seleccion = ids[offset:offset + limit]
+
+        metadatos = self.vector_store.fetch_vector_metadata(seleccion, namespace="")
+
+        fragmentos = []
+        for posicion, vid in enumerate(seleccion, start=offset):
+            md = metadatos.get(vid, {})
+            fragmentos.append({
+                "numero": posicion + 1,
+                "id": vid,
+                "texto": (md.get("text") or "").strip(),
+            })
+
+        return {
+            "doc_id": doc_id,
+            "filename": record.get("filename", ""),
+            "title": record.get("title", ""),
+            "category": record.get("category", ""),
+            "total_fragmentos": total,
+            "offset": offset,
+            "limit": limit,
+            "fragmentos": fragmentos,
+        }
+
     def download_document(self, doc_id: str) -> tuple:
         record = self.get_document(doc_id)
         content = self.storage.load(record)
