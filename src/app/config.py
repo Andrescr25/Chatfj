@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     HUGGINGFACE_CHAT_MODEL: str = "zai-org/GLM-5.2"
     HUGGINGFACE_CHAT_BASE_URL: str = "https://router.huggingface.co/v1"
 
+    # SambaNova: API compatible con OpenAI. Ojo: desde agosto de 2026 las
+    # cuentas nuevas exigen método de pago; sin él responde 402.
+    SAMBANOVA_API_KEY: Optional[str] = None
+    SAMBANOVA_BASE_URL: str = "https://api.sambanova.ai/v1"
+    SAMBANOVA_MODEL: str = "gpt-oss-120b"
+
     # Cerebras: capa gratuita propia y API compatible con OpenAI.
     # Sirve de respaldo real cuando el proveedor principal se queda sin cupo.
     CEREBRAS_API_KEY: Optional[str] = None

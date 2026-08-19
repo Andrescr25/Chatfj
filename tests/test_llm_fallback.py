@@ -298,3 +298,26 @@ class TestValorPegadoDesdeUnPanel(unittest.TestCase):
 
     def test_ignora_comillas_por_entrada(self):
         self.assertEqual(self._cadena("'groq' , 'gemini'"), ["groq", "gemini"])
+
+
+class TestSambaNova(unittest.TestCase):
+    def test_usa_el_endpoint_y_modelo_configurados(self):
+        from src.app.core.llm.factory import construir_cascada
+
+        with patch("src.app.config.settings.LLM_CHAIN", "sambanova"), \
+             patch("src.app.config.settings.SAMBANOVA_API_KEY", "llave-samba"):
+            cascada = construir_cascada()
+        proveedor = cascada.proveedores[0]
+        self.assertEqual(proveedor.base_url, "https://api.sambanova.ai/v1")
+        self.assertEqual(proveedor.model, "gpt-oss-120b")
+
+    def test_un_402_por_falta_de_saldo_cede_el_turno(self):
+        """SambaNova responde 402 sin método de pago: la cascada debe seguir."""
+        from src.app.core.llm.client import es_error_transitorio
+
+        error = RuntimeError(
+            'sambanova respondió 402: {"error":{"balance_units":0,"code":"PAYMENT_METHOD_REQUIRED"}}'
+        )
+        error.status_code = 402
+        # No es transitorio, pero la cascada continúa igual con el siguiente
+        self.assertFalse(es_error_transitorio(error))

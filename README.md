@@ -137,6 +137,7 @@ Se probaron varias alternativas antes de elegir esta:
 | HuggingFace | Funciona con el token que ya se tenía. Respaldo actual |
 | Google Gemini | 20 solicitudes por día en `gemini-2.5-flash`; se agota enseguida |
 | Cerebras | Su capa gratuita son créditos que caducan a los 30 días |
+| SambaNova | Desde agosto de 2026 las cuentas nuevas exigen método de pago (402) |
 | GitHub Models | En proceso de retiro |
 | OpenRouter | Los modelos gratuitos exigen recarga previa |
 

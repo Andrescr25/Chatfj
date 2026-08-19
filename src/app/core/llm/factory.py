@@ -42,6 +42,14 @@ def _crear(entrada: str) -> BaseLLM:
             timeout=90,  # su router puede tardar en despertar el modelo
         )
 
+    if nombre == "sambanova":
+        return OpenAICompatibleLLM(
+            api_key=settings.SAMBANOVA_API_KEY,
+            model=modelo or settings.SAMBANOVA_MODEL,
+            base_url=settings.SAMBANOVA_BASE_URL,
+            nombre="sambanova",
+        )
+
     if nombre == "cerebras":
         return OpenAICompatibleLLM(
             api_key=settings.CEREBRAS_API_KEY,
