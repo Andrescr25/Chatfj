@@ -23,7 +23,7 @@ services:
         value: groq,huggingface,gemini
       # Respaldo: usa el mismo token de HuggingFace de los embeddings
       - key: HUGGINGFACE_CHAT_MODEL
-        value: meta-llama/Llama-3.3-70B-Instruct
+        value: zai-org/GLM-5.2
 
       # Índice vectorial real del proyecto (serverless, 1024 dimensiones)
       - key: EMBEDDING_MODEL_NAME

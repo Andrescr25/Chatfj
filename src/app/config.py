@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # HuggingFace: el mismo token que ya se usa para los embeddings sirve para
     # generar respuestas, con API compatible con OpenAI. Respaldo sin registro extra.
-    HUGGINGFACE_CHAT_MODEL: str = "meta-llama/Llama-3.3-70B-Instruct"
+    HUGGINGFACE_CHAT_MODEL: str = "zai-org/GLM-5.2"
     HUGGINGFACE_CHAT_BASE_URL: str = "https://router.huggingface.co/v1"
 
     # Cerebras: capa gratuita propia y API compatible con OpenAI.

@@ -38,6 +38,27 @@ def es_error_transitorio(error: Exception) -> bool:
     return any(señal in texto for señal in SEÑALES_TRANSITORIAS)
 
 
+def _extraer_texto(datos: dict, proveedor: str) -> str:
+    """
+    Saca el texto de una respuesta compatible con OpenAI.
+
+    Los modelos de razonamiento (Qwen Thinking, Kimi, gpt-oss) dejan 'content'
+    vacío y ponen la respuesta en 'reasoning_content'. Sin esto, la petición
+    reventaba con un KeyError en vez de pasar al siguiente proveedor.
+    """
+    try:
+        mensaje = datos["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as e:
+        raise RuntimeError(f"{proveedor} devolvió una respuesta con forma inesperada: {e}")
+
+    for campo in ("content", "reasoning_content", "reasoning", "text"):
+        valor = mensaje.get(campo)
+        if isinstance(valor, str) and valor.strip():
+            return valor.strip()
+
+    raise RuntimeError(f"{proveedor} devolvió una respuesta sin texto utilizable")
+
+
 class BaseLLM(ABC):
     nombre: str = "desconocido"
 
@@ -139,7 +160,7 @@ class OpenAICompatibleLLM(BaseLLM):
                 raise error
 
             datos = response.json()
-            return datos["choices"][0]["message"]["content"].strip()
+            return _extraer_texto(datos, self.nombre)
 
         return await loop.run_in_executor(None, _run)
 

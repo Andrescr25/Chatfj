@@ -154,7 +154,7 @@ class TestConstruccionDeLaCascada(unittest.TestCase):
             cascada = construir_cascada()
         proveedor = cascada.proveedores[0]
         self.assertEqual(proveedor.base_url, "https://router.huggingface.co/v1")
-        self.assertEqual(proveedor.model, "meta-llama/Llama-3.3-70B-Instruct")
+        self.assertEqual(proveedor.model, "zai-org/GLM-5.2")
 
     def test_cerebras_usa_el_modelo_configurado(self):
         """El respaldo debe apuntar a gpt-oss-120b y al endpoint de Cerebras."""

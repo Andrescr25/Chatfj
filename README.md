@@ -117,7 +117,7 @@ falta registrarse en ningún servicio adicional.
 
 ```
 LLM_CHAIN=groq,huggingface,gemini
-HUGGINGFACE_CHAT_MODEL=meta-llama/Llama-3.3-70B-Instruct
+HUGGINGFACE_CHAT_MODEL=zai-org/GLM-5.2
 ```
 
 ### Sobre las capas gratuitas
