@@ -23,16 +23,16 @@ async def diagnostico_modelos(user: CurrentUser = Depends(require_admin)):
     """
     resultados = []
 
-    for nombre in settings.llm_chain:
-        entrada = {"proveedor": nombre}
+    for declaracion in settings.llm_chain:
+        entrada = {"proveedor": declaracion}
         try:
-            cliente = _crear(nombre)
+            cliente = _crear(declaracion)
         except Exception as e:
             entrada.update(estado="sin configurar", detalle=str(e)[:200])
             resultados.append(entrada)
             continue
 
-        entrada["modelo"] = getattr(cliente, "nombre", nombre)
+        entrada["modelo"] = getattr(cliente, "nombre", declaracion)
         inicio = time.time()
         try:
             respuesta = await cliente.generate_async("Responda únicamente con la palabra: ok")

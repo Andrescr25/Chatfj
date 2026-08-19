@@ -20,7 +20,7 @@ services:
 
       # Cascada de modelos: si el primero se queda sin cupo, responde el siguiente
       - key: LLM_CHAIN
-        value: groq,huggingface,gemini
+        value: groq,huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct,gemini
       # Respaldo: usa el mismo token de HuggingFace de los embeddings
       - key: HUGGINGFACE_CHAT_MODEL
         value: zai-org/GLM-5.2

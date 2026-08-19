@@ -116,9 +116,16 @@ sirve también para generar respuestas: su router es compatible con OpenAI. No h
 falta registrarse en ningún servicio adicional.
 
 ```
-LLM_CHAIN=groq,huggingface,gemini
-HUGGINGFACE_CHAT_MODEL=zai-org/GLM-5.2
+LLM_CHAIN=groq,huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct,gemini
 ```
+
+Cada entrada puede llevar el modelo después de dos puntos. Como las cuotas
+gratuitas se cuentan **por modelo**, encadenar dos modelos del mismo proveedor
+agrega un respaldo sin abrir cuentas nuevas: si GLM-5.2 agota su cupo, entra
+Llama 3.3 70B, que además consume menos crédito.
+
+Sin modelo explícito se usa el de la configuración: `GROQ_MODEL`,
+`HUGGINGFACE_CHAT_MODEL`, `GEMINI_MODEL`.
 
 ### Sobre las capas gratuitas
 

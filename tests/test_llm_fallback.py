@@ -220,3 +220,55 @@ class TestDiagnostico(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(estados["gemini"], "falla")
         self.assertFalse(reporte["hay_respaldo"])
         self.assertIn("1 de 3", reporte["resumen"])
+
+
+class TestModeloPorEntrada(unittest.TestCase):
+    """
+    La cascada admite "proveedor:modelo".
+
+    Las cuotas gratuitas se cuentan por modelo, así que encadenar dos modelos
+    del mismo proveedor da un respaldo extra sin cuentas nuevas.
+    """
+
+    def test_conserva_el_modelo_tal_como_se_escribe(self):
+        with patch("src.app.config.settings.LLM_CHAIN",
+                   "groq, huggingface:zai-org/GLM-5.2 , gemini"):
+            from src.app.config import settings
+            self.assertEqual(
+                settings.llm_chain,
+                ["groq", "huggingface:zai-org/GLM-5.2", "gemini"],
+            )
+
+    def test_admite_el_mismo_proveedor_con_modelos_distintos(self):
+        with patch("src.app.config.settings.LLM_CHAIN",
+                   "huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct"):
+            from src.app.config import settings
+            self.assertEqual(len(settings.llm_chain), 2)
+
+    def test_descarta_entradas_repetidas_exactas(self):
+        with patch("src.app.config.settings.LLM_CHAIN", "groq,huggingface:a/b,groq,huggingface:a/b"):
+            from src.app.config import settings
+            self.assertEqual(settings.llm_chain, ["groq", "huggingface:a/b"])
+
+    def test_un_modelo_con_dos_puntos_no_se_parte_mal(self):
+        """Hay identificadores como 'openai/gpt-oss-120b:free'."""
+        from src.app.core.llm.factory import _partir
+        self.assertEqual(
+            _partir("openrouter:openai/gpt-oss-120b:free"),
+            ("openrouter", "openai/gpt-oss-120b:free"),
+        )
+
+    def test_sin_modelo_usa_el_de_la_configuracion(self):
+        from src.app.core.llm.factory import _partir
+        self.assertEqual(_partir("groq"), ("groq", None))
+
+    def test_construye_dos_clientes_del_mismo_proveedor(self):
+        from src.app.core.llm.factory import construir_cascada
+
+        with patch("src.app.config.settings.LLM_CHAIN",
+                   "huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct"), \
+             patch("src.app.config.settings.HUGGINGFACEHUB_API_TOKEN", "hf_prueba"):
+            cascada = construir_cascada()
+
+        modelos = [p.model for p in cascada.proveedores]
+        self.assertEqual(modelos, ["zai-org/GLM-5.2", "meta-llama/Llama-3.3-70B-Instruct"])

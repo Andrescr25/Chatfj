@@ -19,17 +19,24 @@ from src.app.core.llm.client import (
 logger = logging.getLogger(__name__)
 
 
-def _crear(nombre: str) -> BaseLLM:
+def _partir(entrada: str) -> tuple:
+    """'huggingface:zai-org/GLM-5.2' -> ('huggingface', 'zai-org/GLM-5.2')"""
+    proveedor, _, modelo = entrada.partition(":")
+    return proveedor.strip().lower(), (modelo.strip() or None)
+
+
+def _crear(entrada: str) -> BaseLLM:
+    nombre, modelo = _partir(entrada)
     if nombre == "groq":
-        return GroqLLM(api_key=settings.GROQ_API_KEY, model=settings.GROQ_MODEL)
+        return GroqLLM(api_key=settings.GROQ_API_KEY, model=modelo or settings.GROQ_MODEL)
 
     if nombre == "gemini":
-        return GeminiLLM(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
+        return GeminiLLM(api_key=settings.GEMINI_API_KEY, model=modelo or settings.GEMINI_MODEL)
 
     if nombre == "huggingface":
         return OpenAICompatibleLLM(
             api_key=settings.HUGGINGFACEHUB_API_TOKEN,
-            model=settings.HUGGINGFACE_CHAT_MODEL,
+            model=modelo or settings.HUGGINGFACE_CHAT_MODEL,
             base_url=settings.HUGGINGFACE_CHAT_BASE_URL,
             nombre="huggingface",
             timeout=90,  # su router puede tardar en despertar el modelo
@@ -38,7 +45,7 @@ def _crear(nombre: str) -> BaseLLM:
     if nombre == "cerebras":
         return OpenAICompatibleLLM(
             api_key=settings.CEREBRAS_API_KEY,
-            model=settings.CEREBRAS_MODEL,
+            model=modelo or settings.CEREBRAS_MODEL,
             base_url=settings.CEREBRAS_BASE_URL,
             nombre="cerebras",
         )
@@ -46,7 +53,7 @@ def _crear(nombre: str) -> BaseLLM:
     if nombre == "omniroute":
         return OpenAICompatibleLLM(
             api_key=settings.OMNIROUTE_API_KEY,
-            model=settings.OMNIROUTE_MODEL,
+            model=modelo or settings.OMNIROUTE_MODEL,
             base_url=settings.OMNIROUTE_BASE_URL,
             nombre="omniroute",
         )
@@ -54,7 +61,7 @@ def _crear(nombre: str) -> BaseLLM:
     if nombre == "openrouter":
         return OpenAICompatibleLLM(
             api_key=settings.OPENROUTER_API_KEY,
-            model=settings.OPENROUTER_MODEL,
+            model=modelo or settings.OPENROUTER_MODEL,
             base_url="https://openrouter.ai/api/v1",
             nombre="openrouter",
             extra_headers={
@@ -74,11 +81,11 @@ def construir_cascada() -> FallbackLLM:
     el arranque: el objetivo es que el sistema responda con lo que tenga.
     """
     proveedores = []
-    for nombre in settings.llm_chain:
+    for entrada in settings.llm_chain:
         try:
-            proveedores.append(_crear(nombre))
+            proveedores.append(_crear(entrada))
         except Exception as e:
-            logger.warning(f"⚠️ Proveedor '{nombre}' no disponible, se omite de la cascada: {e}")
+            logger.warning(f"⚠️ Proveedor '{entrada}' no disponible, se omite de la cascada: {e}")
 
     if not proveedores:
         raise RuntimeError(

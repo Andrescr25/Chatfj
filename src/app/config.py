@@ -85,14 +85,29 @@ class Settings(BaseSettings):
 
     @property
     def llm_chain(self) -> List[str]:
-        """Proveedores en el orden en que se deben intentar."""
+        """
+        Proveedores en el orden en que se deben intentar.
+
+        Cada entrada puede ser solo el proveedor ("groq") o el proveedor con un
+        modelo concreto ("huggingface:zai-org/GLM-5.2"). Lo segundo permite
+        encadenar dos modelos del mismo proveedor, que es útil porque las cuotas
+        gratuitas suelen contarse por modelo.
+        """
         crudo = self.LLM_CHAIN.strip() or self.LLM_PROVIDER
         vistos, orden = set(), []
-        for nombre in crudo.split(","):
-            nombre = nombre.strip().lower()
-            if nombre and nombre not in vistos:
-                vistos.add(nombre)
-                orden.append(nombre)
+        for entrada in crudo.split(","):
+            entrada = entrada.strip()
+            if not entrada:
+                continue
+            # Solo se parte en el primer ":": los identificadores de modelo
+            # pueden contener otro (por ejemplo "openai/gpt-oss-120b:free").
+            proveedor, sep, modelo = entrada.partition(":")
+            # El proveedor se normaliza; el modelo se respeta tal cual porque
+            # distingue mayúsculas.
+            normalizada = proveedor.strip().lower() + (sep + modelo.strip() if sep else "")
+            if normalizada not in vistos:
+                vistos.add(normalizada)
+                orden.append(normalizada)
         return orden
 
     @property
