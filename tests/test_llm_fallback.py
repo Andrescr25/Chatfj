@@ -181,3 +181,31 @@ class TestConstruccionDeLaCascada(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDiagnostico(unittest.IsolatedAsyncioTestCase):
+    """El endpoint que dice, en segundos, cuál proveedor está fallando."""
+
+    async def test_reporta_el_estado_de_cada_proveedor(self):
+        from src.app.api.v1.endpoints.diagnostics import diagnostico_modelos
+        from src.app.core.security import ROLE_ADMIN, CurrentUser
+
+        def crear_falso(nombre):
+            if nombre == "groq":
+                return ProveedorFalso("groq:modelo", respuesta="ok")
+            if nombre == "cerebras":
+                raise ValueError("Falta la llave de API de cerebras")
+            return ProveedorFalso("gemini:modelo", error=error_con_codigo(429, "quota"))
+
+        with patch("src.app.config.settings.LLM_CHAIN", "groq,cerebras,gemini"), \
+             patch("src.app.api.v1.endpoints.diagnostics._crear", side_effect=crear_falso):
+            reporte = await diagnostico_modelos(
+                CurrentUser(uid="u", email="a@b.cr", role=ROLE_ADMIN)
+            )
+
+        estados = {p["proveedor"]: p["estado"] for p in reporte["proveedores"]}
+        self.assertEqual(estados["groq"], "funciona")
+        self.assertEqual(estados["cerebras"], "sin configurar")
+        self.assertEqual(estados["gemini"], "falla")
+        self.assertFalse(reporte["hay_respaldo"])
+        self.assertIn("1 de 3", reporte["resumen"])
