@@ -145,6 +145,17 @@ class TestConstruccionDeLaCascada(unittest.TestCase):
         self.assertEqual(len(cascada.proveedores), 1)
         self.assertIn("groq", cascada.nombre)
 
+    def test_huggingface_reusa_el_token_de_los_embeddings(self):
+        """El respaldo no exige registrarse en ningún lado nuevo."""
+        from src.app.core.llm.factory import construir_cascada
+
+        with patch("src.app.config.settings.LLM_CHAIN", "huggingface"), \
+             patch("src.app.config.settings.HUGGINGFACEHUB_API_TOKEN", "hf_token_de_prueba"):
+            cascada = construir_cascada()
+        proveedor = cascada.proveedores[0]
+        self.assertEqual(proveedor.base_url, "https://router.huggingface.co/v1")
+        self.assertEqual(proveedor.model, "meta-llama/Llama-3.3-70B-Instruct")
+
     def test_cerebras_usa_el_modelo_configurado(self):
         """El respaldo debe apuntar a gpt-oss-120b y al endpoint de Cerebras."""
         from src.app.core.llm.factory import construir_cascada

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # HuggingFace: el mismo token que ya se usa para los embeddings sirve para
+    # generar respuestas, con API compatible con OpenAI. Respaldo sin registro extra.
+    HUGGINGFACE_CHAT_MODEL: str = "meta-llama/Llama-3.3-70B-Instruct"
+    HUGGINGFACE_CHAT_BASE_URL: str = "https://router.huggingface.co/v1"
+
     # Cerebras: capa gratuita propia y API compatible con OpenAI.
     # Sirve de respaldo real cuando el proveedor principal se queda sin cupo.
     CEREBRAS_API_KEY: Optional[str] = None

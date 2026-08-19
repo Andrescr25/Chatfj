@@ -26,6 +26,15 @@ def _crear(nombre: str) -> BaseLLM:
     if nombre == "gemini":
         return GeminiLLM(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
 
+    if nombre == "huggingface":
+        return OpenAICompatibleLLM(
+            api_key=settings.HUGGINGFACEHUB_API_TOKEN,
+            model=settings.HUGGINGFACE_CHAT_MODEL,
+            base_url=settings.HUGGINGFACE_CHAT_BASE_URL,
+            nombre="huggingface",
+            timeout=90,  # su router puede tardar en despertar el modelo
+        )
+
     if nombre == "cerebras":
         return OpenAICompatibleLLM(
             api_key=settings.CEREBRAS_API_KEY,

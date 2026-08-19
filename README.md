@@ -41,7 +41,7 @@ los documentos, y los documentos sobre el conocimiento general del modelo.
 | Servidor | Python 3.11, FastAPI + Uvicorn, desplegado en Render |
 | Base vectorial | Pinecone (índice `chatfj-legal-index`) |
 | Embeddings | `intfloat/multilingual-e5-large` vía HuggingFace |
-| Modelo de lenguaje | Cascada configurable: Groq, Cerebras, Google Gemini |
+| Modelo de lenguaje | Cascada configurable: Groq, HuggingFace, Google Gemini |
 | Autenticación | Firebase Authentication (custom claims) |
 | Catálogo y bitácora | Firestore |
 | Archivos originales | Firebase Storage |
@@ -109,24 +109,32 @@ sistema.
 
 Proveedores admitidos: `groq`, `gemini`, `omniroute`, `openrouter`.
 
-### Cerebras (respaldo actual)
+### Respaldo actual: HuggingFace
 
-[Cerebras](https://cloud.cerebras.ai/) tiene capa gratuita propia y API
-compatible con OpenAI, así que sirve de respaldo real cuando Groq se satura.
-
-1. Cree una cuenta y genere una llave en `cloud.cerebras.ai`.
-2. Configure la variable:
+El token de HuggingFace que ya se usa para los embeddings (`HUGGINGFACEHUB_API_TOKEN`)
+sirve también para generar respuestas: su router es compatible con OpenAI. No hace
+falta registrarse en ningún servicio adicional.
 
 ```
-CEREBRAS_API_KEY=<su llave>
+LLM_CHAIN=groq,huggingface,gemini
+HUGGINGFACE_CHAT_MODEL=meta-llama/Llama-3.3-70B-Instruct
 ```
 
-El modelo está fijado en `gpt-oss-120b` (`CEREBRAS_MODEL`), el mismo que usa
-Groq, para que las respuestas sean consistentes entre proveedores. La capa
-gratuita corre a unos 3000 tokens por segundo con ventana de 65k.
+### Sobre las capas gratuitas
 
-También están implementados `openrouter` y `omniroute` por si algún día se
-quieren en la cascada; ambos usan el mismo cliente compatible con OpenAI.
+Se probaron varias alternativas antes de elegir esta:
+
+| Proveedor | Estado (agosto 2026) |
+|---|---|
+| Groq | Capa gratuita recurrente. Es el proveedor principal |
+| HuggingFace | Funciona con el token que ya se tenía. Respaldo actual |
+| Google Gemini | 20 solicitudes por día en `gemini-2.5-flash`; se agota enseguida |
+| Cerebras | Su capa gratuita son créditos que caducan a los 30 días |
+| GitHub Models | En proceso de retiro |
+| OpenRouter | Los modelos gratuitos exigen recarga previa |
+
+`cerebras`, `openrouter` y `omniroute` quedan implementados por si sus condiciones
+cambian: los cuatro comparten el mismo cliente compatible con OpenAI.
 
 ## Pruebas y calidad
 

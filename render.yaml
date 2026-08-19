@@ -20,12 +20,10 @@ services:
 
       # Cascada de modelos: si el primero se queda sin cupo, responde el siguiente
       - key: LLM_CHAIN
-        value: groq,cerebras,gemini
-      # Cerebras: respaldo con capa gratuita propia
-      - key: CEREBRAS_API_KEY
-        sync: false
-      - key: CEREBRAS_MODEL
-        value: gpt-oss-120b
+        value: groq,huggingface,gemini
+      # Respaldo: usa el mismo token de HuggingFace de los embeddings
+      - key: HUGGINGFACE_CHAT_MODEL
+        value: meta-llama/Llama-3.3-70B-Instruct
 
       # Índice vectorial real del proyecto (serverless, 1024 dimensiones)
       - key: EMBEDDING_MODEL_NAME
