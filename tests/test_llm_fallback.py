@@ -272,3 +272,29 @@ class TestModeloPorEntrada(unittest.TestCase):
 
         modelos = [p.model for p in cascada.proveedores]
         self.assertEqual(modelos, ["zai-org/GLM-5.2", "meta-llama/Llama-3.3-70B-Instruct"])
+
+
+class TestValorPegadoDesdeUnPanel(unittest.TestCase):
+    """
+    Al pegar LLM_CHAIN en el panel de Render es fácil arrastrar comillas o un
+    salto de línea. Antes eso convertía el primer proveedor en '"groq' y lo
+    descartaba en silencio, dejando la cascada sin su eslabón principal.
+    """
+
+    def _cadena(self, valor):
+        with patch("src.app.config.settings.LLM_CHAIN", valor):
+            from src.app.config import settings
+            return settings.llm_chain
+
+    def test_ignora_comillas_envolventes(self):
+        self.assertEqual(self._cadena('"groq,gemini"'), ["groq", "gemini"])
+
+    def test_ignora_salto_de_linea_final(self):
+        self.assertEqual(self._cadena("groq,gemini\n"), ["groq", "gemini"])
+
+    def test_ignora_comillas_y_salto_juntos(self):
+        self.assertEqual(self._cadena('"groq,huggingface:zai-org/GLM-5.2\n"'),
+                         ["groq", "huggingface:zai-org/GLM-5.2"])
+
+    def test_ignora_comillas_por_entrada(self):
+        self.assertEqual(self._cadena("'groq' , 'gemini'"), ["groq", "gemini"])

@@ -93,10 +93,13 @@ class Settings(BaseSettings):
         encadenar dos modelos del mismo proveedor, que es útil porque las cuotas
         gratuitas suelen contarse por modelo.
         """
-        crudo = self.LLM_CHAIN.strip() or self.LLM_PROVIDER
+        # Se limpian comillas y espacios: al pegar el valor en el panel de
+        # Render es fácil que arrastre comillas o un salto de línea, y entonces
+        # el primer proveedor quedaba como '"groq' y se descartaba en silencio.
+        crudo = self.LLM_CHAIN.strip().strip('"\'').strip() or self.LLM_PROVIDER
         vistos, orden = set(), []
         for entrada in crudo.split(","):
-            entrada = entrada.strip()
+            entrada = entrada.strip().strip('"\'').strip()
             if not entrada:
                 continue
             # Solo se parte en el primer ":": los identificadores de modelo

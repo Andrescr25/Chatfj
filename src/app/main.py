@@ -1,4 +1,5 @@
 import os
+import sys
 from contextlib import asynccontextmanager
 
 import firebase_admin
@@ -23,6 +24,13 @@ async def lifespan(app: FastAPI):
     Se usa lifespan y no @app.on_event, que FastAPI marca como obsoleto.
     """
     logger.info("🚀 Iniciando ChatFJ API...")
+
+    if sys.version_info < (3, 11):
+        logger.critical(
+            f"🚨 Python {sys.version_info.major}.{sys.version_info.minor} detectado. "
+            "El proyecto requiere 3.11 (ver runtime.txt): la lectura de archivos "
+            "Excel falla en versiones anteriores. Corrija PYTHON_VERSION."
+        )
 
     # Inicializar Firebase Admin SDK
     try:
