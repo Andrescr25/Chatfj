@@ -19,11 +19,11 @@ services:
         value: openai/gpt-oss-120b
 
       - key: GEMINI_MODEL
-        value: gemini-flash-latest
+        value: gemini-3.1-flash-lite
 
       # Cascada de modelos: si el primero se queda sin cupo, responde el siguiente
       - key: LLM_CHAIN
-        value: groq,huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct,gemini
+        value: gemini,groq,huggingface
       # Respaldo: usa el mismo token de HuggingFace de los embeddings
       - key: HUGGINGFACE_CHAT_MODEL
         value: zai-org/GLM-5.2
