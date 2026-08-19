@@ -62,19 +62,30 @@
   padding: 0 16px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  /* Con seis pestañas ya no caben en un teléfono: se desplazan en vez de
+     comprimirse unas sobre otras. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+
+.ap-tabs::-webkit-scrollbar { display: none; }
 
 .ap-tab {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  flex-shrink: 0;
+  white-space: nowrap;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   padding: 12px 14px;
+  min-height: 44px;
   font-size: 14px;
   color: var(--text-secondary);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ap-tab:hover { color: var(--text-primary); }
@@ -482,6 +493,8 @@
 }
 
 @media (max-width: 640px) {
+  .ap-tabs { padding: 0 10px; }
+  .ap-tab { padding: 12px 11px; font-size: 13.5px; }
   .ap-overlay { padding: 0; }
   .ap-panel { height: 100vh; border-radius: 0; }
   .ap-encabezado-seccion { flex-direction: column; }
@@ -638,4 +651,307 @@
 .ap-aviso-texto {
   color: #b45309 !important;
   font-size: 11.5px !important;
+}
+
+/* ============================================
+   TABLAS EN MÓVIL: cada fila se vuelve tarjeta
+
+   Abajo de 700px una tabla de siete columnas es ilegible: las columnas se
+   enciman y los nombres se recortan a tres letras. Se abandona el formato
+   tabular y cada documento pasa a ser una tarjeta con sus datos etiquetados.
+============================================ */
+
+@media (max-width: 700px) {
+  .ap-tabla-contenedor {
+    overflow: visible;
+    border: none;
+    background: none;
+  }
+
+  .ap-tabla,
+  .ap-tabla tbody,
+  .ap-tabla tr,
+  .ap-tabla td {
+    display: block;
+    width: auto;
+  }
+
+  .ap-tabla { table-layout: auto; }
+  .ap-tabla thead,
+  .ap-tabla colgroup { display: none; }
+
+  .ap-tabla tr {
+    border: 1px solid var(--border-color);
+    border-radius: 11px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: var(--bg-main);
+  }
+
+  .ap-tabla td {
+    border: none;
+    padding: 4px 0;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  /* Las columnas ocultas vuelven a mostrarse: en tarjeta hay espacio de sobra */
+  .ap-col-oculta-md,
+  .ap-col-oculta-sm { display: block; }
+
+  /* Cada dato se presenta con su etiqueta, ya que no hay encabezado */
+  .ap-tabla td[data-etiqueta]::before {
+    content: attr(data-etiqueta) ": ";
+    color: var(--text-secondary);
+    font-size: 11.5px;
+  }
+
+  .ap-tabla td.ap-num { text-align: left; }
+
+  /* El nombre del documento encabeza la tarjeta y ya no se recorta */
+  .ap-doc-nombre strong,
+  .ap-doc-nombre span,
+  .ap-doc-enlace {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .ap-doc-enlace { font-size: 14.5px; }
+
+  /* Acciones al pie de la tarjeta, con tamaño cómodo para el dedo */
+  .ap-celda-acciones { padding-top: 10px; }
+
+  .ap-acciones {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .ap-acciones button {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+  }
+
+  .ap-sin-acciones { margin-top: 6px; }
+}
+
+/* Mismo motivo: evitar el zoom automático de iOS al enfocar un campo */
+@media (max-width: 900px) {
+  .ap-form-subida input,
+  .ap-form-subida select,
+  .ap-visor-busqueda input,
+  .ap-modal input {
+    font-size: 16px;
+  }
+}
+
+/* ============================================
+   CORRECCIONES, ESTADÍSTICAS E HISTORIAL
+============================================ */
+
+.ap-lista-correcciones,
+.ap-historial {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ap-correccion {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.ap-correccion header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: var(--text-primary);
+}
+
+.ap-correccion header svg { flex-shrink: 0; margin-top: 2px; opacity: .6; }
+.ap-correccion header strong { font-size: 14px; font-weight: 600; word-break: break-word; }
+
+.ap-correccion p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ap-correccion footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ap-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.ap-campo input,
+.ap-campo textarea {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13.5px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ap-modal-ancho { width: min(680px, 100%); }
+
+/* --- Ranking de documentos --- */
+
+.ap-tarjetas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.ap-tarjeta-dato {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.ap-tarjeta-dato strong { display: block; font-size: 22px; font-weight: 600; color: var(--text-primary); }
+.ap-tarjeta-dato span { font-size: 12.5px; color: var(--text-secondary); }
+
+.ap-ranking { display: flex; flex-direction: column; gap: 8px; }
+
+.ap-ranking-fila {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.ap-ranking-puesto {
+  flex-shrink: 0;
+  width: 22px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.ap-ranking-datos { flex: 1; min-width: 0; }
+
+.ap-ranking-nombre {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+
+.ap-ranking-barra {
+  height: 7px;
+  background: var(--bg-secondary);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ap-ranking-barra span {
+  display: block;
+  height: 100%;
+  background: var(--button-primary);
+  border-radius: 99px;
+}
+
+.ap-ranking-cifra {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  min-width: 68px;
+  text-align: right;
+}
+
+.ap-ranking-cifra em { font-style: normal; font-size: 11.5px; color: var(--text-secondary); }
+
+/* --- Historial --- */
+
+.ap-consulta {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ap-consulta-cabecera {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  min-height: 44px;
+}
+
+.ap-consulta-cabecera:hover { background: var(--bg-secondary); }
+
+.ap-consulta-fecha {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.ap-consulta-pregunta {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-consulta-cuerpo {
+  padding: 0 13px 13px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ap-consulta-cuerpo p {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  padding-top: 11px;
+}
+
+.ap-consulta-fuentes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 700px) {
+  .ap-consulta-cabecera { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .ap-consulta-pregunta { white-space: normal; }
+  .ap-correccion footer { align-items: flex-start; }
 }

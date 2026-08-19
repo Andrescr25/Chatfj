@@ -26,6 +26,20 @@ def get_document_service() -> DocumentService:
 
 
 @lru_cache(maxsize=1)
+def get_corrections_service():
+    from src.app.services.corrections_service import CorrectionsService
+
+    return CorrectionsService(get_chat_service().vector_store)
+
+
+@lru_cache(maxsize=1)
+def get_analytics_service():
+    from src.app.services.analytics_service import AnalyticsService
+
+    return AnalyticsService()
+
+
+@lru_cache(maxsize=1)
 def get_admin_service():
     from src.app.services.admin_service import AdminService
 

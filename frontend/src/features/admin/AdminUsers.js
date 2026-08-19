@@ -243,15 +243,15 @@ function AdminUsers({ me }) {
                         </div>
                       </div>
                     </td>
-                    <td>
+                    <td data-etiqueta="Estado">
                       <span className={`ap-badge ${admin.disabled ? 'ap-badge-error' : 'ap-badge-ok'}`}>
                         {admin.disabled ? 'Deshabilitada' : 'Activa'}
                       </span>
                     </td>
-                    <td className="ap-celda-secundaria ap-col-oculta-md">
+                    <td className="ap-celda-secundaria ap-col-oculta-md" data-etiqueta="Último ingreso">
                       {formatearFecha(admin.last_sign_in)}
                     </td>
-                    <td className="ap-celda-secundaria ap-col-oculta-md">
+                    <td className="ap-celda-secundaria ap-col-oculta-md" data-etiqueta="Invitada por">
                       <span title={admin.invited_by}>{admin.invited_by || '—'}</span>
                     </td>
                     <td className="ap-celda-acciones">

@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Menu, X, MessageSquarePlus, MessageSquare, Clock, Trash2,
-  AlertTriangle, Settings, Sun, Moon
+  AlertTriangle, Settings, Sun, Moon, Scale, LogOut
 } from 'lucide-react';
 
 /**
@@ -46,7 +46,22 @@ function Sidebar({
       )}
 
       {/* Sidebar */}
-      <div className={`sidebar ${abierta ? 'sidebar-open' : ''}`}>
+      <aside className={`sidebar ${abierta ? 'sidebar-open' : ''}`} aria-label="Conversaciones">
+        <div className="sidebar-marca">
+          <span className="sidebar-marca-icono"><Scale size={18} /></span>
+          <span className="sidebar-marca-textos">
+            <strong>Chat FJ</strong>
+            <span>Facilitadores Judiciales</span>
+          </span>
+          <button
+            className="sidebar-cerrar"
+            onClick={() => onAbrirCambiar(false)}
+            aria-label="Cerrar menú"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
         <button 
           className="new-chat-btn"
           onClick={() => {
@@ -62,7 +77,7 @@ function Sidebar({
           <p className="warning"><AlertTriangle size={12} style={{marginRight: '4px', verticalAlign: 'text-bottom'}}/> Escribe algo primero</p>
         )}
 
-        <div className="conversaciones-list">
+        <div className="conversations-list">
           {conversaciones.map(conv => (
             <div key={conv.id} className="conversation-item-wrapper">
               <button
@@ -73,7 +88,8 @@ function Sidebar({
                 }}
               >
                 <div className="conversation-title">
-                  <MessageSquare size={14} style={{marginTop: '2px'}}/> {conv.title}
+                  <MessageSquare size={14} />
+                  <span>{conv.title}</span>
                 </div>
                 <div className="conversation-date">
                   <Clock size={12} /> {formatearFecha(conv.timestamp)}
@@ -92,10 +108,10 @@ function Sidebar({
 
         <div className="sidebar-footer">
           {/* Theme Toggle Switch en sidebar (móvil) */}
-          <div className="tema-toggle-container sidebar-tema-toggle">
+          <div className="theme-toggle-container sidebar-theme-toggle">
             <div 
-              className="tema-toggle-switch"
-              data-tema={tema}
+              className="theme-toggle-switch"
+              data-theme={tema}
               onClick={onCambiarTema}
               role="button"
               aria-label={tema === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
@@ -107,13 +123,13 @@ function Sidebar({
                 }
               }}
             >
-              <span className="tema-icon sun">
+              <span className="theme-icon sun">
                 <Sun size={14} />
               </span>
-              <span className="tema-icon moon">
+              <span className="theme-icon moon">
                 <Moon size={14} />
               </span>
-              <div className="tema-toggle-slider"></div>
+              <div className="theme-toggle-slider"></div>
             </div>
           </div>
           
@@ -132,34 +148,16 @@ function Sidebar({
               <button
                 className="admin-logout-btn"
                 onClick={onCerrarSesion}
-                title="Cerrar Sesión Súper Usuario"
-                style={{
-                  marginTop: '8px',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '8px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  width: '100%',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  justifyContent: 'center',
-                  transition: 'background-color 0.2s',
-                  boxSizing: 'border-box'
-                }}
+                title="Cerrar sesión de administración"
               >
-                Cerrar Sesión Admin
+                <LogOut size={15} /> Cerrar sesión
               </button>
             </>
           )}
           <p>Chat FJ v2.0</p>
           <p>Poder Judicial CR 🇨🇷</p>
         </div>
-      </div>
+      </aside>
     </>
   );
 }

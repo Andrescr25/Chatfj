@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
-  X, FileText, Users, GraduationCap, Loader2, AlertTriangle, ShieldCheck
+  X, FileText, Users, GraduationCap, Loader2, AlertTriangle, ShieldCheck,
+  Pencil, BarChart3, History as HistoryIcon
 } from 'lucide-react';
 import './admin.css';
 import DocumentsManager from './DocumentsManager';
 import AdminUsers from './AdminUsers';
+import CorrectionsManager from './CorrectionsManager';
+import UsageStats from './UsageStats';
+import History from './History';
 import TrainingChat from '../training/TrainingChat';
 import apiService from '../../api/client';
 
@@ -68,6 +72,24 @@ function AdminPanel({ onClose }) {
             <GraduationCap size={16} /> Entrenamiento
           </button>
           <button
+            className={pestana === 'correcciones' ? 'ap-tab ap-tab-activa' : 'ap-tab'}
+            onClick={() => setPestana('correcciones')}
+          >
+            <Pencil size={16} /> Correcciones
+          </button>
+          <button
+            className={pestana === 'estadisticas' ? 'ap-tab ap-tab-activa' : 'ap-tab'}
+            onClick={() => setPestana('estadisticas')}
+          >
+            <BarChart3 size={16} /> Estadísticas
+          </button>
+          <button
+            className={pestana === 'historial' ? 'ap-tab ap-tab-activa' : 'ap-tab'}
+            onClick={() => setPestana('historial')}
+          >
+            <HistoryIcon size={16} /> Historial
+          </button>
+          <button
             className={pestana === 'administradores' ? 'ap-tab ap-tab-activa' : 'ap-tab'}
             onClick={() => setPestana('administradores')}
           >
@@ -107,6 +129,12 @@ function AdminPanel({ onClose }) {
               </div>
             </div>
           )}
+
+          {!cargando && !error && pestana === 'correcciones' && <CorrectionsManager />}
+
+          {!cargando && !error && pestana === 'estadisticas' && <UsageStats />}
+
+          {!cargando && !error && pestana === 'historial' && <History />}
 
           {!cargando && !error && pestana === 'administradores' && <AdminUsers me={me} />}
         </div>

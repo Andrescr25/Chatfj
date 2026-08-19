@@ -21,6 +21,7 @@ from src.app.core.rag.embeddings import EmbeddingService
 from src.app.core.rag.store import VectorStoreService
 from src.app.core.rag.web_search import WebSearchHelper
 from src.app.schemas.chat import Message, QueryResponse
+from src.app.services.analytics_service import AnalyticsService
 from src.app.services.training_service import TrainingService
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,16 @@ class ChatService:
         
         # 3. Cascada de modelos de lenguaje
         self.llm: BaseLLM = construir_cascada()
+
+        # 4. Registro de uso (documentos consultados e historial)
+        self.analytics = AnalyticsService()
+        # Las tareas en segundo plano necesitan una referencia viva: sin ella,
+        # Python puede recolectarlas antes de que lleguen a ejecutarse.
+        self._tareas_en_curso = set()
+        logger.info(
+            "📈 Registro de uso: "
+            + ("activo" if self.analytics.disponible else "inactivo (Firestore no disponible)")
+        )
 
     async def _parallel_search(self, question: str, history: List[Message], force_contact: bool) -> Tuple[Any, List[Any], Tuple[str, List[Any]]]:
         """Ejecuta búsquedas de contexto en paralelo."""
@@ -137,7 +148,10 @@ class ChatService:
             # Umbral de relevancia más estricto para evitar ruido y asegurar alta precisión
             if score > 0.75: 
                 content = doc.page_content
-                source = doc.metadata.get('source', 'Documento Interno')
+                # Los dos esquemas de ingesta que conviven guardan el nombre en
+                # campos distintos; se muestra solo el archivo, no la ruta.
+                bruto = doc.metadata.get('source') or doc.metadata.get('filename') or ''
+                source = bruto.split('/')[-1] if bruto else 'Documento interno'
                 final_docs_content.append(f"Fuente: {source}\nContenido: {content}")
                 doc_sources.append({"title": source, "snippet": content[:150], "score": score})
         
@@ -168,6 +182,12 @@ class ChatService:
             correction_type=learned_correction[3] if learned_correction else ""
         )
         
+        # Registro de uso: en segundo plano y a prueba de fallos, porque la
+        # persona ya tiene su respuesta y esto no debe demorarla ni romperla.
+        self._registrar_en_segundo_plano(
+            question, answer, response.sources, getattr(self.llm, "ultimo_usado", "")
+        )
+
         # Solo cachear respuestas que incluyen correcciones aprendidas
         if learned_correction:
             cache_key = f"{question.strip().lower()}"
@@ -175,6 +195,23 @@ class ChatService:
             logger.info("💾 Respuesta con corrección cacheada")
         
         return response
+
+    def _registrar_en_segundo_plano(self, pregunta, respuesta, fuentes, proveedor):
+        async def _tarea():
+            try:
+                await asyncio.to_thread(
+                    self.analytics.registrar_consulta, pregunta, respuesta, fuentes, proveedor
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo registrar la consulta: {e}")
+
+        try:
+            tarea = asyncio.create_task(_tarea())
+            self._tareas_en_curso.add(tarea)
+            tarea.add_done_callback(self._tareas_en_curso.discard)
+        except RuntimeError:
+            # Sin bucle de eventos (por ejemplo, en pruebas): se registra en línea
+            self.analytics.registrar_consulta(pregunta, respuesta, fuentes, proveedor)
 
     def _construct_prompt(
         self, 

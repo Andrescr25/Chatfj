@@ -1,3 +1,4 @@
+import contextlib
 import logging
 
 from fastapi import APIRouter, Depends
@@ -23,9 +24,16 @@ async def ask_question(
         return response
     except Exception as e:
         logger.error(f"Error procesando pregunta: {e}")
-        # Return graceful error to frontend
-        return QueryResponse(
-            answer="Lo siento, ocurrió un error técnico momentáneo. Por favor intentá preguntar de nuevo en unos segundos.",
-            sources=[],
-            processing_time=0.0
+
+        # También se registra lo que falló: el historial sirve sobre todo para
+        # entender qué se estaba preguntando cuando el sistema dejó de responder.
+        mensaje = (
+            "Lo siento, ocurrió un error técnico momentáneo. "
+            "Por favor intentá preguntar de nuevo en unos segundos."
         )
+        with contextlib.suppress(Exception):
+            service.analytics.registrar_consulta(
+                request.question, f"[SIN RESPUESTA] {e}"[:500], [], "ninguno"
+            )
+
+        return QueryResponse(answer=mensaje, sources=[], processing_time=0.0)

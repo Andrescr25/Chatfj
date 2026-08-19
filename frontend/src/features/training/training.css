@@ -661,3 +661,13 @@
     opacity: 0;
   }
 }
+/* En pantallas táctiles, iOS hace zoom al enfocar un campo con letra menor a
+   16px y deja la interfaz descuadrada. Se sube solo en móvil para no alterar
+   el diseño de escritorio. */
+@media (max-width: 900px) {
+  .tc-trainer-bar input,
+  .tc-question-form input,
+  .tc-correction-textarea {
+    font-size: 16px;
+  }
+}

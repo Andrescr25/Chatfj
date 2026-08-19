@@ -219,6 +219,35 @@ class APIService {
 
   // ===== Administradores =====
 
+  // ===== Correcciones aprendidas =====
+
+  async listCorrections() {
+    return this.request('/corrections');
+  }
+
+  async updateCorrection(id, cambios) {
+    return this.request(`/corrections/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(cambios),
+    });
+  }
+
+  async deleteCorrection(id) {
+    return this.request(`/corrections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // ===== Uso del asistente =====
+
+  async getDocumentStats(limite = 25) {
+    return this.request(`/stats/documents?limite=${limite}`);
+  }
+
+  async getHistory(dias = 7, limite = 200) {
+    return this.request(`/history?dias=${dias}&limite=${limite}`);
+  }
+
+  // ===== Administradores =====
+
   async listAdmins() {
     return this.request('/admins');
   }

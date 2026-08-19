@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Trash2, RefreshCw, Download, FileText, Loader2,
-  AlertTriangle, CheckCircle2, Clock, Database, Eye, X, Search
+  AlertTriangle, CheckCircle2, Clock, Database, Eye
 } from 'lucide-react';
 import apiService from '../../api/client';
 import DocumentViewer from './DocumentViewer';
@@ -381,16 +381,16 @@ function DocumentsManager() {
                       </div>
                     </div>
                   </td>
-                  <td className="ap-col-oculta-md">
+                  <td className="ap-col-oculta-md" data-etiqueta="Materia">
                     {(CATEGORIES.find(c => c.value === doc.category) || {}).label || doc.category}
                   </td>
-                  <td className="ap-num">{(doc.chunks || 0).toLocaleString('es-CR')}</td>
-                  <td>{renderEstado(doc)}</td>
-                  <td className="ap-celda-secundaria ap-col-oculta-md">
+                  <td className="ap-num" data-etiqueta="Fragmentos">{(doc.chunks || 0).toLocaleString('es-CR')}</td>
+                  <td data-etiqueta="Estado">{renderEstado(doc)}</td>
+                  <td className="ap-celda-secundaria ap-col-oculta-md" data-etiqueta="Subido por">
                     <span title={doc.uploaded_by}>{formatearAutor(doc.uploaded_by)}</span>
                     {doc.legacy && <span className="ap-etiqueta-legacy">heredado</span>}
                   </td>
-                  <td className="ap-celda-secundaria ap-col-oculta-sm">{formatearFecha(doc.uploaded_at)}</td>
+                  <td className="ap-celda-secundaria ap-col-oculta-sm" data-etiqueta="Fecha">{formatearFecha(doc.uploaded_at)}</td>
                   <td className="ap-celda-acciones">
                     <div className="ap-acciones">
                       <button title="Ver contenido" onClick={() => abrirVisor(doc)}>

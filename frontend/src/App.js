@@ -32,8 +32,21 @@ function App() {
     return localStorage.getItem('theme') || 'light';
   });
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
 
   const currentConv = conversations.find(c => c.id === currentConvId);
+
+  // El campo de escritura crece con el texto y vuelve a su alto original al
+  // enviarlo. Antes el alto se fijaba desde onInput, que no se dispara cuando
+  // React limpia el valor: el campo se quedaba enorme y en móvil tapaba media
+  // pantalla. El tope lo pone el CSS (max-height), distinto en móvil.
+  useEffect(() => {
+    const campo = textareaRef.current;
+    if (!campo) return;
+    campo.style.height = 'auto';
+    const tope = parseFloat(getComputedStyle(campo).maxHeight) || 200;
+    campo.style.height = `${Math.min(campo.scrollHeight, tope)}px`;
+  }, [input]);
 
   // Estados de autenticación de súper usuario
   const [isAdminRoute, setIsAdminRoute] = useState(false);
@@ -451,32 +464,6 @@ function App() {
       <div className="main-content">
         <div className="header">
           <h1><Scale size={20} style={{verticalAlign: 'text-bottom', marginRight: '8px'}}/> Chat FJ - Servicio Nacional de Facilitadoras y Facilitadores Judiciales</h1>
-          
-          {/* Theme Toggle Switch */}
-          <div className="theme-toggle-container">
-            <div 
-              className="theme-toggle-switch"
-              data-theme={theme}
-              onClick={toggleTheme}
-              role="button"
-              aria-label={theme === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  toggleTheme();
-                }
-              }}
-            >
-              <span className="theme-icon sun">
-                <Sun size={14} />
-              </span>
-              <span className="theme-icon moon">
-                <Moon size={14} />
-              </span>
-              <div className="theme-toggle-slider"></div>
-            </div>
-          </div>
         </div>
 
         <div className="chat-container">
@@ -571,15 +558,7 @@ function App() {
                 placeholder="Envía un mensaje a Chat FJ..."
                 disabled={isLoading}
                 rows={1}
-                style={{
-                  height: 'auto',
-                  minHeight: '24px',
-                  maxHeight: '200px',
-                }}
-                onInput={(e) => {
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
+                ref={textareaRef}
               />
               <button
                 type="submit"
