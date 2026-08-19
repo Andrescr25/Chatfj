@@ -170,7 +170,7 @@ class GeminiLLM(BaseLLM):
         if not api_key:
             raise ValueError("GEMINI_API_KEY no configurada")
         genai.configure(api_key=api_key)
-        model_name = model if "gemini" in model else "gemini-2.5-flash"
+        model_name = model if "gemini" in model else "gemini-flash-latest"
         self.model = genai.GenerativeModel(model_name)
         self.nombre = f"gemini:{model_name}"
 

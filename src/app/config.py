@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "openai/gpt-4-turbo"
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    # "gemini-flash-latest" apunta siempre al flash vigente: gemini-2.5-flash
+    # quedó descontinuado para cuentas nuevas y dejó de responder.
+    GEMINI_MODEL: str = "gemini-flash-latest"
 
     # HuggingFace: el mismo token que ya se usa para los embeddings sirve para
     # generar respuestas, con API compatible con OpenAI. Respaldo sin registro extra.

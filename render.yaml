@@ -18,6 +18,9 @@ services:
       - key: GROQ_MODEL
         value: openai/gpt-oss-120b
 
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+
       # Cascada de modelos: si el primero se queda sin cupo, responde el siguiente
       - key: LLM_CHAIN
         value: groq,huggingface:zai-org/GLM-5.2,huggingface:meta-llama/Llama-3.3-70B-Instruct,gemini
