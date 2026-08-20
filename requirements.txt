@@ -3,6 +3,10 @@
 
 # Configuración
 python-dotenv>=1.0.0
+# La usa src/app/config.py. Estaba llegando de rebote como dependencia de otro
+# paquete: al reinstalar todo desde cero en Render dejó de llegar y el servicio
+# no levantó.
+pydantic-settings>=2.0.0
 
 # LangChain para RAG y manejo de documentos
 langchain>=0.1.0
