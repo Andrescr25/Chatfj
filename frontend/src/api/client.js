@@ -180,6 +180,16 @@ class APIService {
     );
   }
 
+  /**
+   * Cambia el nombre visible y la materia de un documento
+   */
+  async updateDocument(docId, cambios) {
+    return this.request(`/documents/${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(cambios),
+    });
+  }
+
   async reindexDocument(docId) {
     return this.request(`/documents/${encodeURIComponent(docId)}/reindex`, {
       method: 'POST',

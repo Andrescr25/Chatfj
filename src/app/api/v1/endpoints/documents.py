@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from src.app.api.v1.deps import get_document_service
 from src.app.core.security import CurrentUser, require_admin
@@ -51,6 +52,34 @@ async def get_document_content(
     haber quedado sin texto útil).
     """
     return service.get_document_content(doc_id, offset=offset, limit=limit)
+
+
+class DocumentUpdateRequest(BaseModel):
+    nombre: str = None
+    category: str = None
+
+
+@router.patch("/documents/{doc_id}")
+async def renombrar_documento(
+    doc_id: str,
+    request: DocumentUpdateRequest,
+    background_tasks: BackgroundTasks,
+    user: CurrentUser = Depends(require_admin),
+    service: DocumentService = Depends(get_document_service),
+):
+    """
+    Renombra el documento y su materia.
+
+    El catálogo cambia de inmediato; las citas que ve la persona usuaria se
+    actualizan en segundo plano, porque hay que reescribir la metadata de todos
+    los fragmentos indexados.
+    """
+    registro = service.actualizar_metadatos(
+        doc_id, actor=user, nombre=request.nombre, category=request.category
+    )
+    if request.nombre is not None:
+        background_tasks.add_task(service.renombrar_en_indice, doc_id)
+    return registro
 
 
 @router.post("/documents", status_code=202)

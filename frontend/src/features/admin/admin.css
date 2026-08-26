@@ -451,7 +451,10 @@
   box-shadow: var(--shadow-lg);
 }
 
-.ap-modal h3 { display: flex; align-items: center; gap: 8px; font-size: 16px; color: #dc2626; }
+/* El rojo se reserva para lo destructivo: un modal de edición no debe verse
+   como una advertencia. */
+.ap-modal h3 { display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--text-primary); }
+.ap-modal-peligro h3 { color: #dc2626; }
 .ap-modal p { font-size: 13.5px; line-height: 1.55; color: var(--text-secondary); }
 .ap-modal-instruccion code { font-size: 12.5px; color: var(--text-primary); word-break: break-all; }
 .ap-modal-acciones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
@@ -954,4 +957,14 @@
   .ap-consulta-cabecera { flex-direction: column; align-items: flex-start; gap: 4px; }
   .ap-consulta-pregunta { white-space: normal; }
   .ap-correccion footer { align-items: flex-start; }
+}
+
+.ap-campo select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13.5px;
+  font-family: inherit;
 }

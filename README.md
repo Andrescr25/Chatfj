@@ -83,7 +83,8 @@ Hace falta un archivo `config/config.env` (no se versiona) con:
 | Variable | Para qué |
 |---|---|
 | `LLM_CHAIN` | Cascada de modelos, en orden (ver abajo) |
-| `GROQ_API_KEY` / `CEREBRAS_API_KEY` / `GEMINI_API_KEY` | Llaves de los proveedores |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` | Llaves de los proveedores de lenguaje |
+| `EMBEDDINGS_FALLBACK_API_KEY` | Respaldo de embeddings (ver abajo) |
 | `PINECONE_API_KEY` | Base vectorial |
 | `HUGGINGFACEHUB_API_TOKEN` | Embeddings |
 | `ADMIN_EMAILS` | Correos con acceso garantizado al panel |
@@ -126,6 +127,30 @@ Llama 3.3 70B, que además consume menos crédito.
 
 Sin modelo explícito se usa el de la configuración: `GROQ_MODEL`,
 `HUGGINGFACE_CHAT_MODEL`, `GEMINI_MODEL`.
+
+### Respaldo de los embeddings
+
+> **Estado actual**: el respaldo por segundo modelo (Gemini) está implementado
+> pero **desactivado**. Su espacio del índice quedó con 990 de 9.036 fragmentos,
+> porque la cuota gratuita de embeddings de Gemini permite alrededor de una
+> petición por minuto y copiar el corpus llevaría más de 130 horas. Con el
+> espacio incompleto, la búsqueda de respaldo citaría una fracción del acervo
+> como si fuera todo. Se activa con `EMBEDDINGS_GEMINI_ENABLED=true` cuando el
+> espacio esté completo.
+
+Los embeddings son el punto más crítico: sin ellos no se puede indexar ni
+buscar, y el asistente responde **sin documentos y en silencio**. Pasó de
+verdad cuando se agotó el crédito mensual de HuggingFace.
+
+Por eso admiten respaldo. La condición es que el proveedor sirva **el mismo
+modelo** (`intfloat/multilingual-e5-large`): vectores de otro modelo no son
+comparables con el índice existente y las búsquedas devolverían cualquier cosa.
+DeepInfra lo sirve.
+
+```
+EMBEDDINGS_FALLBACK_API_KEY=<llave>
+EMBEDDINGS_FALLBACK_BASE_URL=https://api.deepinfra.com/v1/openai
+```
 
 ### Sobre las capas gratuitas
 

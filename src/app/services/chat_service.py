@@ -144,9 +144,11 @@ class ChatService:
             )
         # === END DEBUG ===
         
+        # El umbral depende del modelo que resolvió la búsqueda: las escalas de
+        # similitud de e5 y de Gemini no son comparables.
+        umbral = self.vector_store.umbral_actual
         for doc, score in relevant_docs:
-            # Umbral de relevancia más estricto para evitar ruido y asegurar alta precisión
-            if score > 0.75: 
+            if score > umbral: 
                 content = doc.page_content
                 # Los dos esquemas de ingesta que conviven guardan el nombre en
                 # campos distintos; se muestra solo el archivo, no la ruta.
@@ -157,11 +159,17 @@ class ChatService:
         
         # Log retrieved evidence for debugging
         if doc_sources:
-            logger.info(f"📚 Documentos que pasaron filtro (score > 0.75): {len(doc_sources)}/{len(relevant_docs)}")
+            logger.info(
+                f"📚 Documentos que pasaron el filtro (score > {umbral}): "
+                f"{len(doc_sources)}/{len(relevant_docs)}"
+            )
             filtered_summary = [f"{d['title']} ({d['score']:.4f})" for d in doc_sources]
             logger.info(f"📚 Fuentes filtradas: {filtered_summary}")
         else:
-            logger.warning("⚠️ No se encontraron documentos relevantes en la base vectorial (ninguno superó score > 0.75).")
+            logger.warning(
+                f"⚠️ Ningún documento superó el umbral de {umbral} en el espacio "
+                f"'{self.vector_store.ultimo_espacio or 'por defecto'}'."
+            )
 
         # 5. Generate Answer
         logger.info(f"🤖 Generando respuesta con: {self.llm.nombre}")

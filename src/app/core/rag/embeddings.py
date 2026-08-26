@@ -96,10 +96,209 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
              logger.error(f"❌ Error en embed_query: {e}")
              raise e # Re-raise to let store.py handle it gracefully
 
+# Cada modelo de embeddings vive en su propio espacio del índice. Comparar
+# vectores de modelos distintos no falla: devuelve resultados sin sentido, en
+# silencio. Por eso el espacio se decide por el modelo que generó el vector.
+ESPACIO_E5 = ""
+ESPACIO_GEMINI = "gemini"
+
+
+class EmbeddingsGemini:
+    """
+    Embeddings de Google Gemini, ajustados a 1024 dimensiones para que quepan
+    en el mismo índice que los de e5.
+    """
+
+    def __init__(self, api_key: str, model: str, dimensiones: int = 1024):
+        if not api_key:
+            raise ValueError("Falta la llave de API de Gemini")
+        self.api_key = api_key
+        self.model = model
+        self.dimensiones = dimensiones
+        self.espacio = ESPACIO_GEMINI
+        self.nombre = f"gemini:{model}"
+        self._base = "https://generativelanguage.googleapis.com/v1beta"
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        peticiones = [
+            {
+                "model": f"models/{self.model}",
+                "content": {"parts": [{"text": t}]},
+                "outputDimensionality": self.dimensiones,
+            }
+            for t in texts
+        ]
+        r = requests.post(
+            f"{self._base}/models/{self.model}:batchEmbedContents",
+            headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+            json={"requests": peticiones},
+            timeout=90,
+        )
+        if r.status_code != 200:
+            error = RuntimeError(f"{self.nombre} respondió {r.status_code}: {r.text[:160]}")
+            error.status_code = r.status_code
+            raise error
+        return [e["values"] for e in r.json().get("embeddings", [])]
+
+    def embed_query(self, text: str) -> List[float]:
+        vectores = self.embed_documents([text])
+        if not vectores or not vectores[0]:
+            raise ValueError(f"{self.nombre} devolvió un embedding vacío")
+        return vectores[0]
+
+
+class EmbeddingsCompatiblesOpenAI:
+    """
+    Embeddings desde cualquier API compatible con OpenAI (DeepInfra, Nebius...).
+
+    Sirve de respaldo cuando HuggingFace se queda sin crédito. Es indispensable
+    que el modelo sea el mismo con el que se construyó el índice: vectores de
+    otro modelo no son comparables y las búsquedas devolverían cualquier cosa.
+    """
+
+    def __init__(self, api_key: str, model: str, base_url: str, nombre: str):
+        if not api_key:
+            raise ValueError(f"Falta la llave de API de {nombre}")
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.nombre = nombre
+        self.espacio = ESPACIO_E5
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        r = requests.post(
+            f"{self.base_url}/embeddings",
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            json={"model": self.model, "input": texts},
+            timeout=60,
+        )
+        if r.status_code != 200:
+            error = RuntimeError(f"{self.nombre} respondió {r.status_code}: {r.text[:160]}")
+            error.status_code = r.status_code
+            raise error
+
+        datos = sorted(r.json()["data"], key=lambda d: d.get("index", 0))
+        return [d["embedding"] for d in datos]
+
+    def embed_query(self, text: str) -> List[float]:
+        vectores = self.embed_documents([text])
+        if not vectores or not vectores[0]:
+            raise ValueError(f"{self.nombre} devolvió un embedding vacío")
+        return vectores[0]
+
+
 class EmbeddingService:
+    """
+    Embeddings con respaldo.
+
+    Los embeddings son el punto más crítico del sistema: sin ellos no se puede
+    indexar ni buscar, y el asistente responde sin documentos, en silencio. Por
+    eso admiten cascada igual que los modelos de lenguaje.
+    """
+
     def __init__(self):
         self.client = None
+        self.respaldo = None
+        self.gemini = None
         self._initialize()
+        self._inicializar_respaldo()
+
+    def _inicializar_respaldo(self):
+        """
+        Dos respaldos de distinta naturaleza:
+
+        - EMBEDDINGS_FALLBACK: sirve el MISMO modelo (e5) y escribe en el mismo
+          espacio del índice. Es un respaldo del proveedor.
+        - Gemini: es OTRO modelo, así que vive en su propio espacio. Es un
+          respaldo del modelo, y por eso los documentos se indexan en ambos.
+        """
+        if settings.EMBEDDINGS_FALLBACK_API_KEY:
+            try:
+                self.respaldo = EmbeddingsCompatiblesOpenAI(
+                    api_key=settings.EMBEDDINGS_FALLBACK_API_KEY,
+                    model=settings.EMBEDDING_MODEL_NAME,
+                    base_url=settings.EMBEDDINGS_FALLBACK_BASE_URL,
+                    nombre="respaldo de embeddings",
+                )
+                logger.info(f"🧭 Respaldo del mismo modelo: {settings.EMBEDDINGS_FALLBACK_BASE_URL}")
+            except Exception as e:
+                logger.warning(f"⚠️ Respaldo de embeddings no disponible: {e}")
+
+        if settings.GEMINI_API_KEY and settings.EMBEDDINGS_GEMINI_ENABLED:
+            try:
+                self.gemini = EmbeddingsGemini(
+                    api_key=settings.GEMINI_API_KEY,
+                    model=settings.EMBEDDINGS_GEMINI_MODEL,
+                )
+                logger.info(f"🧭 Segundo modelo de embeddings: {self.gemini.nombre} (espacio '{ESPACIO_GEMINI}')")
+            except Exception as e:
+                logger.warning(f"⚠️ Embeddings de Gemini no disponibles: {e}")
+
+    @property
+    def proveedores_e5(self) -> list:
+        """Los que producen vectores comparables con el espacio por defecto."""
+        return [p for p in (self.client, self.respaldo) if p is not None]
+
+    def _intentar(self, proveedores, operacion, *args):
+        ultimo_error = None
+        for proveedor in proveedores:
+            try:
+                resultado = getattr(proveedor, operacion)(*args)
+                if resultado:
+                    return resultado
+                raise RuntimeError("devolvió vacío")
+            except Exception as e:
+                ultimo_error = e
+                logger.warning(
+                    f"↪️ Embeddings: {getattr(proveedor, 'nombre', 'principal')} falló "
+                    f"({str(e)[:80]})"
+                )
+        raise ultimo_error or RuntimeError("no hay proveedores de embeddings")
+
+    def _con_respaldo(self, operacion, *args):
+        """Cascada dentro del mismo modelo: el vector siempre es comparable con e5."""
+        return self._intentar(self.proveedores_e5, operacion, *args)
+
+    def embed_query_con_espacio(self, text: str) -> tuple:
+        """
+        Devuelve (vector, espacio del índice donde buscar).
+
+        El espacio lo decide el modelo que generó el vector: buscar en el
+        espacio equivocado no da error, da resultados sin sentido.
+        """
+        try:
+            return self._con_respaldo("embed_query", text), ESPACIO_E5
+        except Exception as e:
+            if not self.gemini:
+                raise
+            logger.warning(
+                f"↪️ Embeddings: ningún proveedor de e5 respondió ({str(e)[:70]}). "
+                f"Se consulta el espacio '{ESPACIO_GEMINI}'."
+            )
+            return self.gemini.embed_query(text), ESPACIO_GEMINI
+
+    def embed_documents_por_espacio(self, texts: List[str]) -> dict:
+        """
+        Vectores para cada espacio del índice, de cara a la indexación.
+
+        Se indexa en los dos para que exista respaldo real: si mañana falla un
+        modelo, el otro ya tiene los mismos documentos disponibles.
+        """
+        resultado = {}
+        try:
+            resultado[ESPACIO_E5] = self._con_respaldo("embed_documents", texts)
+        except Exception as e:
+            logger.error(f"❌ Sin vectores de e5 para este lote: {str(e)[:110]}")
+
+        if self.gemini:
+            try:
+                resultado[ESPACIO_GEMINI] = self.gemini.embed_documents(texts)
+            except Exception as e:
+                logger.warning(f"⚠️ Sin vectores de Gemini para este lote: {str(e)[:110]}")
+
+        if not resultado:
+            raise RuntimeError("Ningún proveedor de embeddings respondió")
+        return resultado
 
     def _initialize(self):
         if settings.HUGGINGFACEHUB_API_TOKEN:
@@ -123,7 +322,7 @@ class EmbeddingService:
         """Genera embedding para un texto (async wrapper)."""
         loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(None, self.client.embed_query, text)
+            result = await loop.run_in_executor(None, self.embed_query_sync, text)
             if not result:
                 logger.warning(f"⚠️ Embedding vacío para texto: {text[:20]}...")
             return result
@@ -145,8 +344,8 @@ class EmbeddingService:
             logger.error(f"❌ Error probando HuggingFace API: {e}")
 
     def embed_query_sync(self, text: str) -> List[float]:
-        """Genera embedding síncrono."""
-        return self.client.embed_query(text)
+        """Genera embedding síncrono, con respaldo si el principal falla."""
+        return self._con_respaldo("embed_query", text)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return self.client.embed_documents(texts)
+        return self._con_respaldo("embed_documents", texts)

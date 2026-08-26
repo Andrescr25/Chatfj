@@ -55,6 +55,22 @@ class Settings(BaseSettings):
     # RAG / Embeddings
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
     HUGGINGFACEHUB_API_TOKEN: Optional[str] = None
+
+    # Respaldo de embeddings, por API compatible con OpenAI. DEBE servir el
+    # mismo modelo: vectores de otro modelo no son comparables con el índice.
+    # DeepInfra sirve intfloat/multilingual-e5-large.
+    EMBEDDINGS_FALLBACK_API_KEY: Optional[str] = None
+    EMBEDDINGS_FALLBACK_BASE_URL: str = "https://api.deepinfra.com/v1/openai"
+
+    # Segundo modelo de embeddings (Gemini), en su propio espacio del índice.
+    #
+    # Desactivado por defecto: su espacio quedó con 990 de 9.036 fragmentos
+    # porque la cuota gratuita de embeddings de Gemini permite ~1 petición por
+    # minuto, insuficiente para copiar un corpus. Con el espacio incompleto, la
+    # búsqueda de respaldo citaría el 11% del acervo como si fuera todo, que es
+    # peor que fallar. Se activa cuando el espacio esté completo.
+    EMBEDDINGS_GEMINI_ENABLED: bool = False
+    EMBEDDINGS_GEMINI_MODEL: str = "gemini-embedding-001"
     
     # Pinecone
     PINECONE_API_KEY: Optional[str] = None
@@ -63,6 +79,11 @@ class Settings(BaseSettings):
     
     # Search
     SEARCH_TOP_K: int = 4
+    # Umbral de relevancia POR MODELO: las escalas de similitud no son
+    # comparables entre modelos de embeddings. Con e5 lo relevante ronda 0,83;
+    # con Gemini, 0,55. Usar el mismo número descartaría todo en un espacio.
+    SEARCH_THRESHOLD_E5: float = 0.75
+    SEARCH_THRESHOLD_GEMINI: float = 0.45
     
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = "config/firebase-adminsdk.json"

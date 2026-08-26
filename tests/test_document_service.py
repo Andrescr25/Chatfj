@@ -45,6 +45,10 @@ class VectorStoreFalso:
     def fetch_vector_metadata(self, ids, namespace=""):
         return {vid: {"text": f"contenido de {vid}"} for vid in ids}
 
+    def fetch_vectors_full(self, ids, namespace=""):
+        return [(vid, [0.1, 0.2], {"text": f"contenido de {vid}", "source": "viejo.pdf",
+                                   "filename": "viejo.pdf"}) for vid in ids]
+
     def index_stats(self):
         return {"namespaces": {"": {"vector_count": 100}}}
 
@@ -253,3 +257,102 @@ class TestReindexado(BaseDocumentos):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRenombrado(BaseDocumentos):
+    """
+    Renombrar cambia el nombre del archivo y el de las citas, sin tocar el
+    contenido ni la relación entre catálogo e índice.
+    """
+
+    def _documento(self, chunks=3):
+        doc = self.service.create_document("Prevencioun_de_la_violencia.pdf", b"contenido", self.actor)
+        self.service.registry.update(doc["doc_id"], chunks=chunks, status=STATUS_INDEXED)
+        prefix = doc["vector_prefix"]
+        self.vector_store.ids_por_prefijo[prefix] = [f"{prefix}{i}" for i in range(chunks)]
+        return self.service.get_document(doc["doc_id"])
+
+    def test_cambia_el_nombre_del_archivo(self):
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(
+            doc["doc_id"], self.actor, nombre="Prevención de la violencia política"
+        )
+        self.assertEqual(resultado["filename"], "Prevención de la violencia política.pdf")
+
+    def test_conserva_la_extension_si_no_se_escribe(self):
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Nombre nuevo")
+        self.assertTrue(resultado["filename"].endswith(".pdf"))
+
+    def test_no_duplica_la_extension_si_se_escribe(self):
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Nombre nuevo.pdf")
+        self.assertEqual(resultado["filename"], "Nombre nuevo.pdf")
+
+    def test_no_cambia_el_identificador_ni_el_prefijo(self):
+        """Cambiarlos rompería la relación entre el catálogo y el índice."""
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Otro")
+        self.assertEqual(resultado["doc_id"], doc["doc_id"])
+        self.assertEqual(resultado["vector_prefix"], doc["vector_prefix"])
+        self.assertEqual(resultado["chunks"], doc["chunks"])
+
+    def test_marca_las_citas_como_pendientes(self):
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Otro")
+        self.assertTrue(resultado["citas_pendientes"])
+
+    def test_propaga_el_nombre_a_los_fragmentos(self):
+        doc = self._documento(chunks=3)
+        self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Nombre definitivo")
+        resultado = self.service.renombrar_en_indice(doc["doc_id"])
+
+        self.assertEqual(resultado["actualizados"], 3)
+        subidos = self.vector_store.subidos
+        for _vid, _valores, metadata in subidos:
+            self.assertEqual(metadata["source"], "Nombre definitivo.pdf")
+            self.assertEqual(metadata["filename"], "Nombre definitivo.pdf")
+
+    def test_no_altera_el_texto_de_los_fragmentos(self):
+        doc = self._documento(chunks=2)
+        self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Otro nombre")
+        self.service.renombrar_en_indice(doc["doc_id"])
+        for vid, _valores, metadata in self.vector_store.subidos:
+            self.assertEqual(metadata["text"], f"contenido de {vid}")
+
+    def test_al_terminar_deja_de_estar_pendiente(self):
+        doc = self._documento()
+        self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Otro")
+        self.service.renombrar_en_indice(doc["doc_id"])
+        self.assertFalse(self.service.get_document(doc["doc_id"])["citas_pendientes"])
+
+    def test_cambia_la_materia(self):
+        doc = self._documento()
+        resultado = self.service.actualizar_metadatos(doc["doc_id"], self.actor, category="violencia_domestica")
+        self.assertEqual(resultado["category"], "violencia_domestica")
+
+    def test_rechaza_nombre_vacio(self):
+        doc = self._documento()
+        with self.assertRaises(HTTPException) as ctx:
+            self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="   ")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_rechaza_barras_en_el_nombre(self):
+        """Firestore y las rutas de almacenamiento no las admiten."""
+        doc = self._documento()
+        with self.assertRaises(HTTPException) as ctx:
+            self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="carpeta/archivo")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_rechaza_un_nombre_desmedido(self):
+        doc = self._documento()
+        with self.assertRaises(HTTPException) as ctx:
+            self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="x" * 250)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_no_se_puede_renombrar_uno_eliminado(self):
+        doc = self._documento()
+        self.service.delete_document(doc["doc_id"], self.actor)
+        with self.assertRaises(HTTPException) as ctx:
+            self.service.actualizar_metadatos(doc["doc_id"], self.actor, nombre="Nuevo")
+        self.assertEqual(ctx.exception.status_code, 400)

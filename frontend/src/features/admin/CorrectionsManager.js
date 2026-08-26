@@ -200,7 +200,7 @@ function CorrectionsManager() {
 
       {porEliminar && (
         <div className="ap-modal-fondo" onClick={() => !eliminando && setPorEliminar(null)}>
-          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="ap-modal ap-modal-peligro" onClick={(e) => e.stopPropagation()}>
             <h3><AlertTriangle size={18} /> Eliminar corrección</h3>
             <p>El asistente dejará de aplicarla y volverá a responder según los documentos.</p>
             <p className="ap-modal-archivo">{porEliminar.pregunta}</p>

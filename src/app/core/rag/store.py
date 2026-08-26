@@ -17,11 +17,28 @@ from src.app.core.rag.embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
+
+class Fragmento:
+    """
+    Fragmento recuperado del índice.
+
+    Reemplaza al Document de LangChain en la búsqueda: expone lo único que el
+    servicio de chat necesita y evita depender del envoltorio para elegir el
+    espacio del índice.
+    """
+
+    __slots__ = ("page_content", "metadata")
+
+    def __init__(self, page_content: str, metadata: dict):
+        self.page_content = page_content
+        self.metadata = metadata
+
 class VectorStoreService:
     def __init__(self, embedding_service: EmbeddingService):
         self.embedding_service = embedding_service
         self.vectorstore = None
         self.pinecone_index = None  # Direct Pinecone index for namespace operations
+        self.ultimo_espacio = ""
         self._initialize()
 
     def _initialize(self):
@@ -46,22 +63,45 @@ class VectorStoreService:
             logger.warning("⚠️ Credenciales de Pinecone no encontradas.")
 
     async def search_async(self, query: str, k: int = 4) -> List[Any]:
-        """Realiza búsqueda vectorial asíncrona en docs (namespace default)."""
-        if not self.vectorstore:
+        """
+        Busca en el espacio que corresponde al modelo que generó el vector.
+
+        Los documentos están indexados en dos espacios, uno por modelo de
+        embeddings. Consultar el espacio equivocado no da error: da resultados
+        sin sentido. Por eso el espacio lo decide quien genera el vector, no
+        esta función.
+        """
+        if not self.pinecone_index:
             return []
-            
+
         loop = asyncio.get_running_loop()
-        try:
-            results = await loop.run_in_executor(
-                None, 
-                lambda: self.vectorstore.similarity_search_with_score(query, k=k)
+
+        def _buscar():
+            vector, espacio = self.embedding_service.embed_query_con_espacio(query)
+            if not vector:
+                return []
+
+            respuesta = self.pinecone_index.query(
+                vector=vector,
+                top_k=k,
+                namespace=espacio,
+                include_metadata=True,
             )
-            return results
+            encontrados = []
+            for match in respuesta.get("matches", []):
+                metadata = dict(match.get("metadata") or {})
+                texto = metadata.pop("text", "")
+                encontrados.append((Fragmento(texto, metadata), match.get("score", 0.0)))
+
+            self.ultimo_espacio = espacio
+            if espacio:
+                logger.info(f"🔎 Búsqueda resuelta en el espacio '{espacio}' ({len(encontrados)} resultados)")
+            return encontrados
+
+        try:
+            return await loop.run_in_executor(None, _buscar)
         except Exception as e:
-            error_details = traceback.format_exc()
-            logger.error(f"❌ Error buscando en Pinecone: {e}\nTraceback COMPLETO:\n{error_details}")
-            if str(e).strip() == "0":
-                logger.critical("🚨 ERROR CRÍTICO '0' CONSTANTE: Posible fallo de memoria en EmbeddingService o librería C++ subyacente.")
+            logger.error(f"❌ Error buscando en Pinecone: {e}\n{traceback.format_exc()}")
             return []
 
     # === CORRECTIONS NAMESPACE METHODS ===
@@ -218,3 +258,44 @@ class VectorStoreService:
         except Exception as e:
             logger.error(f"❌ Error consultando estadísticas de Pinecone: {e}")
             return {}
+
+    def fetch_vectors_full(self, ids: List[str], namespace: str = "") -> List[tuple]:
+        """
+        Trae vectores completos (valores + metadata).
+
+        Necesario para renombrar un documento: Pinecone no permite actualizar
+        metadata en lote, pero sí volver a subir los vectores. Traer de a 100 y
+        resubir de a 100 convierte 1.000 llamadas en 20.
+        """
+        if not self.pinecone_index or not ids:
+            return []
+        try:
+            resultado = self.pinecone_index.fetch(ids=ids, namespace=namespace)
+            vectores = getattr(resultado, "vectors", None)
+            if vectores is None and isinstance(resultado, dict):
+                vectores = resultado.get("vectors", {})
+
+            completos = []
+            for vid, v in (vectores or {}).items():
+                valores = getattr(v, "values", None)
+                if valores is None and isinstance(v, dict):
+                    valores = v.get("values")
+                metadata = getattr(v, "metadata", None)
+                if metadata is None and isinstance(v, dict):
+                    metadata = v.get("metadata")
+                if valores:
+                    completos.append((vid, list(valores), dict(metadata or {})))
+            return completos
+        except Exception as e:
+            logger.error(f"❌ Error trayendo vectores completos: {e}")
+            raise
+
+    @property
+    def umbral_actual(self) -> float:
+        """Umbral de relevancia del espacio en el que se resolvió la última búsqueda."""
+        from src.app.config import settings
+        from src.app.core.rag.embeddings import ESPACIO_GEMINI
+
+        if self.ultimo_espacio == ESPACIO_GEMINI:
+            return settings.SEARCH_THRESHOLD_GEMINI
+        return settings.SEARCH_THRESHOLD_E5

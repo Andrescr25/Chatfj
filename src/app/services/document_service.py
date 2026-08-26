@@ -147,6 +147,109 @@ class DocumentService:
         )
         return record
 
+    def actualizar_metadatos(
+        self,
+        doc_id: str,
+        actor: CurrentUser,
+        nombre: str = None,
+        category: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Renombra un documento de verdad: catálogo y nombre del archivo.
+
+        La actualización de las citas que ve la persona usuaria ocurre aparte,
+        en segundo plano (renombrar_en_indice), porque implica reescribir la
+        metadata de todos los fragmentos.
+
+        No cambia el identificador ni el prefijo de los vectores: eso rompería
+        la relación entre el catálogo y el índice.
+        """
+        record = self.get_document(doc_id)
+        if record.get("status") == STATUS_DELETED:
+            raise HTTPException(status_code=400, detail="El documento fue eliminado.")
+
+        cambios = {}
+        if nombre is not None:
+            limpio = " ".join(nombre.split())
+            if not limpio:
+                raise HTTPException(status_code=400, detail="El nombre no puede quedar vacío.")
+            if len(limpio) > 200:
+                raise HTTPException(
+                    status_code=400, detail="El nombre no puede pasar de 200 caracteres."
+                )
+            if any(c in limpio for c in '/\\'):
+                raise HTTPException(
+                    status_code=400, detail="El nombre no puede contener barras."
+                )
+
+            # Se conserva la extensión original si quien renombra no la escribió
+            extension = record.get("extension", "") or Path(record.get("filename", "")).suffix
+            nuevo_archivo = limpio if limpio.lower().endswith(extension.lower()) else limpio + extension
+            cambios["filename"] = nuevo_archivo
+            cambios["title"] = Path(nuevo_archivo).stem
+
+        if category is not None and category.strip():
+            cambios["category"] = category.strip()
+
+        if not cambios:
+            return record
+
+        if "filename" in cambios:
+            cambios["citas_pendientes"] = True
+
+        actualizado = self.registry.update(doc_id, **cambios)
+
+        audit.log_action(
+            "documento.renombrar", actor.uid, actor.email,
+            target=record.get("filename", doc_id),
+            details={"doc_id": doc_id, "antes": record.get("filename"), "despues": cambios.get("filename")},
+        )
+        return actualizado or self.get_document(doc_id)
+
+    def renombrar_en_indice(self, doc_id: str) -> Dict[str, Any]:
+        """
+        Propaga el nombre nuevo a los fragmentos indexados, que es de donde
+        salen las citas que ve la persona usuaria.
+
+        Pinecone no actualiza metadata en lote, pero sí acepta volver a subir
+        vectores: se traen de a 100 y se resuben de a 100.
+        """
+        record = self.registry.get(doc_id)
+        if not record:
+            return {"status": "error", "error": "documento no encontrado"}
+
+        nombre = record.get("filename", "")
+        ids = self._resolve_vector_ids(record)
+        if not ids:
+            self.registry.update(doc_id, citas_pendientes=False)
+            return {"status": "ok", "actualizados": 0}
+
+        actualizados = 0
+        try:
+            for espacio in self._espacios(record):
+                for i in range(0, len(ids), 100):
+                    lote = ids[i:i + 100]
+                    completos = self.vector_store.fetch_vectors_full(lote, namespace=espacio)
+                    if not completos:
+                        continue
+                    nuevos = []
+                    for vid, valores, metadata in completos:
+                        metadata["source"] = nombre
+                        metadata["filename"] = nombre
+                        nuevos.append((vid, valores, metadata))
+                    if not self.vector_store.upsert_vectors(nuevos, namespace=espacio):
+                        raise RuntimeError("Pinecone rechazó la actualización")
+                    actualizados += len(nuevos)
+
+            self.registry.update(doc_id, citas_pendientes=False)
+            logger.info(f"✅ Citas actualizadas para '{nombre}': {actualizados} fragmentos")
+            return {"status": "ok", "actualizados": actualizados}
+
+        except Exception as e:
+            logger.error(f"❌ Error actualizando las citas de {doc_id}: {e}")
+            self.registry.update(doc_id, citas_pendientes=True, error=f"citas: {e}")
+            return {"status": "error", "error": str(e)}
+
     # ---------- Indexación ----------
 
     def index_document(self, doc_id: str) -> Dict[str, Any]:
@@ -191,30 +294,45 @@ class DocumentService:
 
             batch_size = settings.EMBED_BATCH_SIZE
             subidos = 0
+            espacios_usados = set()
             for i in range(0, len(chunks), batch_size):
                 lote = chunks[i:i + batch_size]
-                vectores = self._embed_with_retry(lote)
-                if not vectores:
+                # Se indexa en todos los espacios disponibles: cada modelo de
+                # embeddings tiene el suyo, y así uno respalda al otro.
+                por_espacio = self._embed_with_retry(lote)
+                if not por_espacio:
                     raise RuntimeError(
-                        "El servicio de embeddings (HuggingFace) no respondió. Intente de nuevo en unos minutos."
+                        "Ningún proveedor de embeddings respondió. Intente de nuevo en unos minutos."
                     )
 
-                payload = [
-                    (f"{prefix}{i + j}", vec, {**base_metadata, "text": lote[j]})
-                    for j, vec in enumerate(vectores)
-                ]
-                if not self.vector_store.upsert_vectors(payload, namespace=""):
-                    raise RuntimeError("Pinecone rechazó la subida de vectores.")
+                for espacio, vectores in por_espacio.items():
+                    if len(vectores) != len(lote):
+                        logger.warning(
+                            f"⚠️ El espacio '{espacio or 'por defecto'}' devolvió "
+                            f"{len(vectores)}/{len(lote)} vectores: se omite este lote ahí"
+                        )
+                        continue
+                    payload = [
+                        (f"{prefix}{i + j}", vec, {**base_metadata, "text": lote[j]})
+                        for j, vec in enumerate(vectores)
+                    ]
+                    if not self.vector_store.upsert_vectors(payload, namespace=espacio):
+                        raise RuntimeError("Pinecone rechazó la subida de vectores.")
+                    espacios_usados.add(espacio)
 
-                subidos += len(payload)
+                subidos += len(lote)
                 self.registry.update(doc_id, chunks=subidos)
                 time.sleep(0.5)  # respiro entre lotes para no chocar con el límite de la API
 
             result = self.registry.update(
                 doc_id, status=STATUS_INDEXED, chunks=subidos, chunks_total=len(chunks),
                 indexed_at=utcnow_iso(), error="",
+                espacios=sorted(espacios_usados),
             )
-            logger.info(f"✅ Documento '{record['filename']}' indexado: {subidos} fragmentos.")
+            logger.info(
+                f"✅ Documento '{record['filename']}' indexado: {subidos} fragmentos "
+                f"en {len(espacios_usados)} espacio(s): {sorted(espacios_usados)}"
+            )
             return result or {}
 
         except Exception as e:
@@ -222,20 +340,17 @@ class DocumentService:
             self.registry.update(doc_id, status=STATUS_ERROR, error=str(e))
             return {"status": STATUS_ERROR, "error": str(e)}
 
-    def _embed_with_retry(self, textos: List[str], intentos: int = 3) -> List[List[float]]:
+    def _embed_with_retry(self, textos: List[str], intentos: int = 3) -> Dict[str, List]:
+        """Vectores por espacio del índice, con reintentos."""
         for intento in range(intentos):
             try:
-                vectores = self.embedding_service.embed_documents(textos)
-                if vectores and len(vectores) == len(textos):
-                    return vectores
-                logger.warning(
-                    f"⚠️ Embeddings incompletos (intento {intento + 1}/{intentos}): "
-                    f"{len(vectores) if vectores else 0}/{len(textos)}"
-                )
+                por_espacio = self.embedding_service.embed_documents_por_espacio(textos)
+                if por_espacio:
+                    return por_espacio
             except Exception as e:
                 logger.warning(f"⚠️ Error de embeddings (intento {intento + 1}/{intentos}): {e}")
             time.sleep(5 * (intento + 1))
-        return []
+        return {}
 
     def reindex_document(self, doc_id: str, actor: CurrentUser) -> Dict[str, Any]:
         record = self.get_document(doc_id)
@@ -286,16 +401,32 @@ class DocumentService:
         return [f"{prefix}{i}" for i in range(total)]
 
     def _delete_vectors(self, record: Dict[str, Any]) -> int:
+        """Elimina el documento de todos los espacios donde esté indexado."""
         ids = self._resolve_vector_ids(record)
         if not ids:
             return 0
+        eliminados = 0
         try:
-            return self.vector_store.delete_vectors(ids, namespace="")
+            for espacio in self._espacios(record):
+                eliminados += self.vector_store.delete_vectors(ids, namespace=espacio)
+            return eliminados
         except Exception as e:
             raise HTTPException(
                 status_code=502,
                 detail=f"No se pudieron eliminar los vectores en Pinecone: {e}",
             )
+
+    def _espacios(self, record: Dict[str, Any]) -> List[str]:
+        """Espacios del índice donde vive el documento."""
+        from src.app.core.rag.embeddings import ESPACIO_E5, ESPACIO_GEMINI
+
+        guardados = record.get("espacios")
+        if guardados:
+            return list(guardados)
+        # Los documentos anteriores al doble indexado no tienen el campo: se
+        # asume que están en ambos espacios si el segundo modelo está activo.
+        hay_gemini = getattr(self.embedding_service, "gemini", None) is not None
+        return [ESPACIO_E5, ESPACIO_GEMINI] if hay_gemini else [ESPACIO_E5]
 
     def delete_document(self, doc_id: str, actor: CurrentUser) -> Dict[str, Any]:
         record = self.get_document(doc_id)

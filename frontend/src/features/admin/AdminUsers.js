@@ -283,7 +283,7 @@ function AdminUsers({ me }) {
 
       {porRevocar && (
         <div className="ap-modal-fondo" onClick={() => !revocando && setPorRevocar(null)}>
-          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="ap-modal ap-modal-peligro" onClick={(e) => e.stopPropagation()}>
             <h3><AlertTriangle size={18} /> Revocar acceso</h3>
             <p>
               <strong>{porRevocar.email}</strong> perderá el acceso al panel de inmediato:

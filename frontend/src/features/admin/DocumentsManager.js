@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Trash2, RefreshCw, Download, FileText, Loader2,
-  AlertTriangle, CheckCircle2, Clock, Database, Eye
+  AlertTriangle, CheckCircle2, Clock, Database, Eye, Pencil
 } from 'lucide-react';
 import apiService from '../../api/client';
 import DocumentViewer from './DocumentViewer';
@@ -56,6 +56,11 @@ function DocumentsManager() {
   const [titulo, setTitulo] = useState('');
   const [subiendo, setSubiendo] = useState(false);
   const [arrastrando, setArrastrando] = useState(false);
+
+  const [editando, setEditando] = useState(null);
+  const [nombreEditado, setNombreEditado] = useState('');
+  const [materiaEditada, setMateriaEditada] = useState('general');
+  const [guardandoNombre, setGuardandoNombre] = useState(false);
 
   const [porEliminar, setPorEliminar] = useState(null);
   const [confirmacion, setConfirmacion] = useState('');
@@ -171,6 +176,38 @@ function DocumentsManager() {
       setError(e.message || 'No se pudo eliminar el documento.');
     } finally {
       setEliminando(false);
+    }
+  };
+
+  const abrirEdicion = (doc) => {
+    setEditando(doc);
+    setNombreEditado(doc.filename || doc.title);
+    setMateriaEditada(doc.category || 'general');
+    setError('');
+  };
+
+  const guardarNombre = async () => {
+    if (!editando || guardandoNombre) return;
+    if (!nombreEditado.trim()) {
+      setError('El nombre no puede quedar vacío.');
+      return;
+    }
+    setGuardandoNombre(true);
+    try {
+      await apiService.updateDocument(editando.doc_id, {
+        nombre: nombreEditado,
+        category: materiaEditada,
+      });
+      setAviso(
+        `El documento ahora se llama «${nombreEditado.trim()}». ` +
+        'Las citas del chat se están actualizando en segundo plano.'
+      );
+      setEditando(null);
+      cargar();
+    } catch (e) {
+      setError(e.message || 'No se pudo cambiar el nombre.');
+    } finally {
+      setGuardandoNombre(false);
     }
   };
 
@@ -396,6 +433,9 @@ function DocumentsManager() {
                       <button title="Ver contenido" onClick={() => abrirVisor(doc)}>
                         <Eye size={15} />
                       </button>
+                      <button title="Editar nombre" onClick={() => abrirEdicion(doc)}>
+                        <Pencil size={15} />
+                      </button>
                       {doc.storage_path && (
                         <>
                           <button title="Descargar original" onClick={() => descargar(doc)}>
@@ -436,9 +476,49 @@ function DocumentsManager() {
         onCerrar={cerrarVisor}
       />
 
+      {editando && (
+        <div className="ap-modal-fondo" onClick={() => !guardandoNombre && setEditando(null)}>
+          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+            <h3><Pencil size={18} /> Editar documento</h3>
+            <label className="ap-campo">
+              Nombre del documento
+              <input
+                type="text"
+                value={nombreEditado}
+                onChange={(e) => setNombreEditado(e.target.value)}
+                maxLength={200}
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') guardarNombre(); }}
+              />
+            </label>
+            <label className="ap-campo">
+              Materia
+              <select value={materiaEditada} onChange={(e) => setMateriaEditada(e.target.value)}>
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+            <p className="ap-modal-instruccion">
+              Se renombra el documento 
+            </p>
+            <p className="ap-modal-archivo">Nombre actual: {editando.filename}</p>
+            <div className="ap-modal-acciones">
+              <button className="ap-btn" onClick={() => setEditando(null)} disabled={guardandoNombre}>
+                Cancelar
+              </button>
+              <button className="ap-btn ap-btn-primario" onClick={guardarNombre} disabled={guardandoNombre}>
+                {guardandoNombre ? <Loader2 size={15} className="ap-girando" /> : <CheckCircle2 size={15} />}
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {porEliminar && (
         <div className="ap-modal-fondo" onClick={() => !eliminando && setPorEliminar(null)}>
-          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="ap-modal ap-modal-peligro" onClick={(e) => e.stopPropagation()}>
             <h3><AlertTriangle size={18} /> Eliminar documento del índice</h3>
             <p>
               Se eliminarán <strong>{(porEliminar.chunks || 0).toLocaleString('es-CR')} fragmentos</strong> de:
