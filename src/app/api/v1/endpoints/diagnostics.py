@@ -59,3 +59,58 @@ async def diagnostico_modelos(user: CurrentUser = Depends(require_admin)):
             if disponibles else "NINGÚN proveedor responde: el chat está caído"
         ),
     }
+
+
+@router.get("/health/embeddings")
+async def diagnostico_embeddings(user: CurrentUser = Depends(require_admin)):
+    """
+    Prueba una por una las llaves de embeddings y dice cuál tiene crédito.
+
+    Los embeddings son la falla más peligrosa del sistema porque es silenciosa:
+    cuando se agotan, el chat sigue contestando, pero sin citar ni un documento.
+    Desde afuera parece que funciona. Esto lo saca a la luz sin tener que leer
+    los registros del servidor.
+
+    Ojo: cada consulta a este diagnóstico gasta una llamada por llave, así que
+    conviene usarlo cuando haga falta, no dejarlo actualizándose solo.
+    """
+    from src.app.api.v1.deps import get_chat_service
+
+    servicio = get_chat_service().embedding_service
+    resultados = []
+
+    for proveedor in servicio.proveedores_e5:
+        nombre = getattr(proveedor, "nombre", "principal")
+        entrada = {"proveedor": nombre}
+        apartado = getattr(proveedor, "penalizado_hasta", 0.0) - time.monotonic()
+        if apartado > 0:
+            entrada["apartado_minutos"] = round(apartado / 60, 1)
+
+        inicio = time.time()
+        try:
+            vector = proveedor.embed_query("ok")
+            entrada.update(
+                estado="funciona",
+                segundos=round(time.time() - inicio, 2),
+                dimensiones=len(vector),
+            )
+        except Exception as e:
+            estado_http = getattr(e, "status_code", None)
+            entrada.update(
+                estado="sin crédito" if estado_http == 402 else "falla",
+                segundos=round(time.time() - inicio, 2),
+                detalle=str(e)[:300],
+            )
+        resultados.append(entrada)
+
+    con_credito = [r["proveedor"] for r in resultados if r["estado"] == "funciona"]
+    return {
+        "modelo": settings.EMBEDDING_MODEL_NAME,
+        "proveedores": resultados,
+        "hay_respaldo": len(con_credito) > 1,
+        "resumen": (
+            f"{len(con_credito)} de {len(resultados)} llaves con crédito"
+            if con_credito
+            else "NINGUNA llave tiene crédito: el chat responde sin documentos"
+        ),
+    }

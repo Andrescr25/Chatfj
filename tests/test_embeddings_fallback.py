@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.app.core.rag.embeddings import EmbeddingService
+from src.app.core.rag.embeddings import EmbeddingService, ErrorDeEmbeddings
 
 
 class ProveedorFalso:
@@ -92,10 +92,6 @@ class TestModeloDelRespaldo(unittest.TestCase):
             self.assertEqual(s.respaldo.model, settings.EMBEDDING_MODEL_NAME)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestVariasLlavesDeHuggingFace(unittest.TestCase):
     """
     El crédito de HuggingFace es por cuenta, así que varias llaves dan varios
@@ -135,3 +131,93 @@ class TestVariasLlavesDeHuggingFace(unittest.TestCase):
 
         envuelto = ProveedorConNombre(ProveedorFalso(vector=[0.1] * 1024), "huggingface[2]", ESPACIO_E5)
         self.assertEqual(envuelto.espacio, ESPACIO_E5)
+
+
+
+class TestConsumoDeCredito(unittest.TestCase):
+    """
+    El crédito de embeddings es el recurso más escaso del sistema: se agota por
+    cuenta y por mes. Cada llamada de más acerca la fecha en que producción
+    vuelve a responder sin documentos.
+    """
+
+    def test_la_misma_consulta_se_embebe_una_sola_vez(self):
+        """
+        Cada pregunta disparaba dos llamadas idénticas en paralelo: una para
+        buscar documentos y otra para buscar correcciones.
+        """
+        principal = ProveedorFalso(vector=[0.3] * 1024)
+        s = servicio(principal)
+        primero = s.embed_query_sync("¿puedo denunciar a mi vecino?")
+        segundo = s.embed_query_sync("¿puedo denunciar a mi vecino?")
+        self.assertEqual(primero, segundo)
+        self.assertEqual(principal.llamadas, 1, "la segunda búsqueda gastó crédito otra vez")
+
+    def test_preguntas_distintas_no_comparten_vector(self):
+        principal = ProveedorFalso(vector=[0.3] * 1024)
+        s = servicio(principal)
+        s.embed_query_sync("pensión alimentaria")
+        s.embed_query_sync("apremio corporal")
+        self.assertEqual(principal.llamadas, 2)
+
+    def test_la_llave_sin_credito_se_aparta_y_no_se_reintenta(self):
+        """
+        Un 402 dura hasta el próximo ciclo mensual. Reintentarlo en cada
+        consulta gasta tiempo y llena los registros de errores engañosos.
+        """
+        agotada = ProveedorFalso(error=ErrorDeEmbeddings("402 depleted", 402))
+        buena = ProveedorFalso(vector=[0.7] * 1024)
+        s = servicio(agotada)
+        s.clientes_hf = [agotada, buena]
+
+        s.embed_query_sync("primera pregunta")
+        s.embed_query_sync("segunda pregunta")
+
+        self.assertEqual(agotada.llamadas, 1, "se volvió a intentar la llave agotada")
+        self.assertEqual(buena.llamadas, 2)
+
+    def test_un_fallo_pasajero_no_aparta_la_llave(self):
+        """Un 503 se resuelve solo: la llave debe seguir en el turno."""
+        intermitente = ProveedorFalso(error=ErrorDeEmbeddings("503 modelo cargando", 503))
+        buena = ProveedorFalso(vector=[0.7] * 1024)
+        s = servicio(intermitente)
+        s.clientes_hf = [intermitente, buena]
+
+        s.embed_query_sync("primera pregunta")
+        s.embed_query_sync("segunda pregunta")
+
+        self.assertEqual(intermitente.llamadas, 2)
+
+    def test_si_todas_estan_apartadas_igual_se_intenta(self):
+        """Más vale reintentar una llave dudosa que responder sin documentos."""
+        agotada = ProveedorFalso(error=ErrorDeEmbeddings("402 depleted", 402))
+        s = servicio(agotada)
+        with self.assertRaises(ErrorDeEmbeddings):
+            s.embed_query_sync("primera")
+        with self.assertRaises(ErrorDeEmbeddings):
+            s.embed_query_sync("segunda")
+        self.assertEqual(agotada.llamadas, 2)
+
+
+class TestErrorDeHuggingFace(unittest.TestCase):
+    def test_un_402_no_se_reintenta_tres_veces(self):
+        """Reintentar un crédito agotado multiplica la espera sin ganar nada."""
+        from src.app.core.rag.embeddings import SafeHuggingFaceEmbeddings
+
+        cliente = SafeHuggingFaceEmbeddings(api_key="hf_prueba", model_name="modelo/x")
+
+        class RespuestaFalsa:
+            status_code = 402
+            text = '{"error":"You have depleted your monthly included credits."}'
+            headers = {}
+
+        with patch("src.app.core.rag.embeddings.requests.post", return_value=RespuestaFalsa()) as post, \
+             self.assertRaises(ErrorDeEmbeddings) as capturado:
+            cliente.embed_documents(["hola"])
+
+        self.assertEqual(capturado.exception.status_code, 402)
+        self.assertEqual(post.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

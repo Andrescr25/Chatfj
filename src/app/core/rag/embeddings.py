@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import threading
 import time
-from typing import List
+from collections import OrderedDict
+from typing import List, Optional
 
 import requests
 
@@ -13,6 +15,23 @@ except ImportError:
 from src.app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# La creación perezosa de la memoria de consultas y sus candados se protege con
+# un candado de módulo: las búsquedas corren en hilos del executor.
+_CANDADO_GLOBAL = threading.Lock()
+
+
+class ErrorDeEmbeddings(RuntimeError):
+    """
+    Fallo de un proveedor, con el estado HTTP que lo causó.
+
+    El estado importa para decidir: un 402 (crédito agotado) dura hasta el
+    próximo ciclo mensual, mientras que un 503 se resuelve solo.
+    """
+
+    def __init__(self, mensaje: str, status_code: Optional[int] = None):
+        super().__init__(mensaje)
+        self.status_code = status_code
 
 
 class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
@@ -51,9 +70,17 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
                     continue
                 
                 if response.status_code != 200:
-                    logger.error(f"❌ Error API HF ({response.status_code}): {response.text[:500]}") # Log first 500 chars
-                    logger.warning(f"🔍 Headers de respuesta: {response.headers}")
-                    return []
+                    # El registro nombra la llave: con varias en cascada, un 402
+                    # sin dueño no se puede diagnosticar. Y se lanza en vez de
+                    # devolver vacío para que la cascada sepa por qué falló.
+                    logger.error(
+                        f"❌ HuggingFace respondió {response.status_code} "
+                        f"(llave {masked_key}): {response.text[:200]}"
+                    )
+                    raise ErrorDeEmbeddings(
+                        f"HuggingFace {response.status_code}: {response.text[:120]}",
+                        response.status_code,
+                    )
 
                 result = response.json()
                 
@@ -73,6 +100,8 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
                 logger.error(f"🔍 Contenido crudo (truncado): {str(result)[:500]}")
                 return []
                 
+            except ErrorDeEmbeddings:
+                raise  # ya quedó registrado; reintentar un 402 solo gasta tiempo
             except Exception as e:
                 logger.error(f"❌ Error de conexión HF: {e}")
                 time.sleep(2)
@@ -91,7 +120,9 @@ class SafeHuggingFaceEmbeddings(HuggingFaceInferenceAPIEmbeddings):
             # Si llegamos aquí, falló.
             # LANZAR ERROR para que store.py lo capture y no llame a Pinecone con basura
             raise ValueError(f"No se pudo generar embedding para: {text[:15]}...")
-            
+
+        except ErrorDeEmbeddings:
+            raise  # ya se registró, con su estado y su llave
         except Exception as e:
              logger.error(f"❌ Error en embed_query: {e}")
              raise e # Re-raise to let store.py handle it gracefully
@@ -115,6 +146,7 @@ class ProveedorConNombre:
         self._cliente = cliente
         self.nombre = nombre
         self.espacio = espacio
+        self.penalizado_hasta = 0.0
 
     def embed_query(self, text: str) -> List[float]:
         return self._cliente.embed_query(text)
@@ -223,6 +255,7 @@ class EmbeddingService:
         self.gemini = None
         self._initialize()
         self._inicializar_respaldo()
+        self._test_api()
 
     def _inicializar_respaldo(self):
         """
@@ -266,21 +299,105 @@ class EmbeddingService:
             proveedores.append(self.respaldo)
         return proveedores
 
+    # HuggingFace responde 402 cuando la cuenta agotó el crédito del mes: eso no
+    # se arregla solo, dura hasta el próximo ciclo. Reintentar esa llave en cada
+    # consulta cuesta medio segundo y llena los registros de errores que hacen
+    # parecer roto un sistema que está respondiendo bien por la otra llave.
+    PENALIZACION_SEGUNDOS = 15 * 60
+    ESTADOS_SIN_CREDITO = (401, 402, 403)
+
+    def _disponible(self, proveedor) -> bool:
+        return getattr(proveedor, "penalizado_hasta", 0.0) <= time.monotonic()
+
+    def _apartar_si_quedó_sin_crédito(self, proveedor, error) -> None:
+        estado = getattr(error, "status_code", None)
+        texto = str(error).lower()
+        agotado = estado in self.ESTADOS_SIN_CREDITO or "depleted" in texto
+        if not agotado:
+            return
+        try:
+            proveedor.penalizado_hasta = time.monotonic() + self.PENALIZACION_SEGUNDOS
+        except (AttributeError, ValueError):
+            return  # los clientes de LangChain son Pydantic y no admiten atributos
+        logger.warning(
+            f"⏸️ {getattr(proveedor, 'nombre', 'principal')} se queda sin crédito: "
+            f"apartado {self.PENALIZACION_SEGUNDOS // 60} minutos"
+        )
+
     def _intentar(self, proveedores, operacion, *args):
+        # Si todos están apartados se intenta igual: más vale reintentar una
+        # llave dudosa que quedarse sin embeddings y responder sin documentos.
+        turno = [p for p in proveedores if self._disponible(p)] or list(proveedores)
         ultimo_error = None
-        for proveedor in proveedores:
+        for proveedor in turno:
+            nombre = getattr(proveedor, "nombre", "principal")
             try:
                 resultado = getattr(proveedor, operacion)(*args)
-                if resultado:
-                    return resultado
-                raise RuntimeError("devolvió vacío")
+                if not resultado:
+                    raise RuntimeError("devolvió vacío")
+                if proveedores and proveedor is not proveedores[0]:
+                    # Sin esta línea el respaldo trabaja en silencio: en los
+                    # registros solo se ven los fallos y parece que nada sirve.
+                    logger.info(f"✅ Embeddings resueltos por {nombre}")
+                return resultado
             except Exception as e:
                 ultimo_error = e
-                logger.warning(
-                    f"↪️ Embeddings: {getattr(proveedor, 'nombre', 'principal')} falló "
-                    f"({str(e)[:80]})"
-                )
+                self._apartar_si_quedó_sin_crédito(proveedor, e)
+                logger.warning(f"↪️ Embeddings: {nombre} falló ({str(e)[:80]})")
         raise ultimo_error or RuntimeError("no hay proveedores de embeddings")
+
+    # Cada pregunta se embebía dos veces: una para buscar documentos y otra para
+    # buscar correcciones, en paralelo y con el mismo texto. Con el crédito de
+    # HuggingFace como recurso escaso, ese duplicado costaba el doble sin dar
+    # nada. Aquí el vector se calcula una vez. El modelo es determinista, así
+    # que el resultado no caduca: solo se descartan los más viejos por memoria.
+    MAX_CONSULTAS_EN_MEMORIA = 256
+
+    def _memoria(self):
+        """Memoria de consultas. Perezosa: las pruebas construyen sin __init__."""
+        if getattr(self, "_cache_consultas", None) is None:
+            self._cache_consultas = OrderedDict()
+            self._candados_consulta = {}
+        return self._cache_consultas
+
+    def _leer_cache(self, texto: str):
+        with _CANDADO_GLOBAL:
+            cache = self._memoria()
+            vector = cache.get(texto)
+            if vector:
+                cache.move_to_end(texto)
+            return vector
+
+    def _guardar_cache(self, texto: str, vector) -> None:
+        with _CANDADO_GLOBAL:
+            cache = self._memoria()
+            cache[texto] = vector
+            cache.move_to_end(texto)
+            while len(cache) > self.MAX_CONSULTAS_EN_MEMORIA:
+                cache.popitem(last=False)
+
+    def _embed_query_e5(self, texto: str) -> List[float]:
+        """Vector de e5 para una consulta, calculado una sola vez."""
+        vector = self._leer_cache(texto)
+        if vector:
+            return vector
+
+        # Un candado por texto: dos búsquedas simultáneas de la misma pregunta
+        # comparten una sola llamada, y preguntas distintas no se estorban.
+        with _CANDADO_GLOBAL:
+            self._memoria()
+            candado = self._candados_consulta.setdefault(texto, threading.Lock())
+
+        try:
+            with candado:
+                vector = self._leer_cache(texto)  # otro hilo pudo resolverlo ya
+                if not vector:
+                    vector = self._con_respaldo("embed_query", texto)
+                    self._guardar_cache(texto, vector)
+                return vector
+        finally:
+            with _CANDADO_GLOBAL:
+                self._candados_consulta.pop(texto, None)
 
     def _con_respaldo(self, operacion, *args):
         """Cascada dentro del mismo modelo: el vector siempre es comparable con e5."""
@@ -294,7 +411,7 @@ class EmbeddingService:
         espacio equivocado no da error, da resultados sin sentido.
         """
         try:
-            return self._con_respaldo("embed_query", text), ESPACIO_E5
+            return self._embed_query_e5(text), ESPACIO_E5
         except Exception as e:
             if not self.gemini:
                 raise
@@ -351,7 +468,6 @@ class EmbeddingService:
             self.client = primero
             if len(self.clientes_hf) > 1:
                 logger.info(f"🧭 {len(self.clientes_hf)} llaves de HuggingFace en cascada")
-            self._test_api()
         else:
             logger.warning("⚠️ HUGGINGFACEHUB_API_TOKEN no encontrado. Usando embeddings locales (Alto consumo de RAM)")
             try:
@@ -373,21 +489,23 @@ class EmbeddingService:
              return []
 
     def _test_api(self):
-        """Prueba inicial de conexión con HF."""
-        if not self.client:
+        """
+        Prueba de arranque sobre la cascada completa.
+
+        Probar solo la primera llave daba un error alarmante al arrancar aunque
+        el sistema estuviera respondiendo bien por la segunda.
+        """
+        if not self.proveedores_e5:
             return
         try:
-            res = self.client.embed_query("test")
-            if not res:
-                logger.critical("🚨 HuggingFace API falló en la prueba inicial (retornó vacío/error).")
-            else:
-                logger.info("✅ HuggingFace API funcionando correctamente.")
+            if self._con_respaldo("embed_query", "test"):
+                logger.info("✅ Embeddings disponibles al arrancar.")
         except Exception as e:
-            logger.error(f"❌ Error probando HuggingFace API: {e}")
+            logger.critical(f"🚨 Ningún proveedor de embeddings responde: {str(e)[:120]}")
 
     def embed_query_sync(self, text: str) -> List[float]:
         """Genera embedding síncrono, con respaldo si el principal falla."""
-        return self._con_respaldo("embed_query", text)
+        return self._embed_query_e5(text)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         return self._con_respaldo("embed_documents", texts)
