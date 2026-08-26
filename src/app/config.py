@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # RAG / Embeddings
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
     HUGGINGFACEHUB_API_TOKEN: Optional[str] = None
+    # Llaves adicionales de HuggingFace, separadas por coma. El crédito es por
+    # cuenta, así que una llave de otra cuenta da cupo propio. Al ser el mismo
+    # modelo, sus vectores son comparables y usan el mismo espacio del índice.
+    HUGGINGFACE_TOKENS_EXTRA: str = ""
 
     # Respaldo de embeddings, por API compatible con OpenAI. DEBE servir el
     # mismo modelo: vectores de otro modelo no son comparables con el índice.
@@ -111,6 +115,19 @@ class Settings(BaseSettings):
         "case_sensitive": True,
         "extra": "ignore"  # Allow extra env vars
     }
+
+    @property
+    def huggingface_tokens(self) -> List[str]:
+        """Llaves de HuggingFace en orden de uso, sin repetidas."""
+        crudas = [self.HUGGINGFACEHUB_API_TOKEN or ""]
+        crudas += self.HUGGINGFACE_TOKENS_EXTRA.split(",")
+        vistas, orden = set(), []
+        for t in crudas:
+            t = t.strip().strip('"\'').strip()
+            if t and t not in vistas:
+                vistas.add(t)
+                orden.append(t)
+        return orden
 
     @property
     def llm_chain(self) -> List[str]:

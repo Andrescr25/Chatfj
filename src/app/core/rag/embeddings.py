@@ -103,6 +103,26 @@ ESPACIO_E5 = ""
 ESPACIO_GEMINI = "gemini"
 
 
+class ProveedorConNombre:
+    """
+    Envoltura para identificar a cada proveedor en los registros.
+
+    El cliente de HuggingFace es un modelo de Pydantic y no acepta atributos
+    nuevos, así que el nombre y el espacio del índice viven aquí.
+    """
+
+    def __init__(self, cliente, nombre: str, espacio: str):
+        self._cliente = cliente
+        self.nombre = nombre
+        self.espacio = espacio
+
+    def embed_query(self, text: str) -> List[float]:
+        return self._cliente.embed_query(text)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._cliente.embed_documents(texts)
+
+
 class EmbeddingsGemini:
     """
     Embeddings de Google Gemini, ajustados a 1024 dimensiones para que quepan
@@ -198,6 +218,7 @@ class EmbeddingService:
 
     def __init__(self):
         self.client = None
+        self.clientes_hf = []
         self.respaldo = None
         self.gemini = None
         self._initialize()
@@ -236,8 +257,14 @@ class EmbeddingService:
 
     @property
     def proveedores_e5(self) -> list:
-        """Los que producen vectores comparables con el espacio por defecto."""
-        return [p for p in (self.client, self.respaldo) if p is not None]
+        """
+        Todos los que producen vectores del mismo modelo, en orden de uso:
+        las llaves de HuggingFace y, al final, el respaldo por otra pasarela.
+        """
+        proveedores = list(getattr(self, "clientes_hf", None) or ([self.client] if self.client else []))
+        if self.respaldo is not None:
+            proveedores.append(self.respaldo)
+        return proveedores
 
     def _intentar(self, proveedores, operacion, *args):
         ultimo_error = None
@@ -301,14 +328,29 @@ class EmbeddingService:
         return resultado
 
     def _initialize(self):
-        if settings.HUGGINGFACEHUB_API_TOKEN:
-            token = settings.HUGGINGFACEHUB_API_TOKEN
-            masked = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "***"
-            logger.info(f"☁️ Usando HuggingFace Inference API para embeddings (Token: {masked})")
-            self.client = SafeHuggingFaceEmbeddings(
-                api_key=token,
-                model_name=settings.EMBEDDING_MODEL_NAME
-            )
+        tokens = settings.huggingface_tokens
+        if tokens:
+            # Una cliente por llave: el crédito de HuggingFace es por cuenta, así
+            # que varias llaves dan varios cupos del MISMO modelo. Sus vectores
+            # son comparables entre sí, por eso comparten espacio del índice.
+            self.clientes_hf = []
+            primero = None
+            for i, token in enumerate(tokens):
+                enmascarada = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "***"
+                bruto = SafeHuggingFaceEmbeddings(
+                    api_key=token,
+                    model_name=settings.EMBEDDING_MODEL_NAME,
+                )
+                primero = primero or bruto
+                self.clientes_hf.append(
+                    ProveedorConNombre(bruto, f"huggingface[{i + 1}]", ESPACIO_E5)
+                )
+                logger.info(f"☁️ Embeddings por HuggingFace, llave {i + 1} ({enmascarada})")
+
+            # self.client queda como el cliente sin envolver: LangChain lo exige
+            self.client = primero
+            if len(self.clientes_hf) > 1:
+                logger.info(f"🧭 {len(self.clientes_hf)} llaves de HuggingFace en cascada")
             self._test_api()
         else:
             logger.warning("⚠️ HUGGINGFACEHUB_API_TOKEN no encontrado. Usando embeddings locales (Alto consumo de RAM)")

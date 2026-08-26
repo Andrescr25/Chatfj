@@ -37,6 +37,9 @@ services:
         value: legal-index
       - key: HUGGINGFACEHUB_API_TOKEN
         sync: false
+      # Llaves adicionales: el crédito es por cuenta
+      - key: HUGGINGFACE_TOKENS_EXTRA
+        sync: false
       - key: PINECONE_API_KEY
         sync: false
 

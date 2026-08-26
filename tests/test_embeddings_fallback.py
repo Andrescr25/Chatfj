@@ -38,7 +38,9 @@ class ProveedorFalso:
 def servicio(principal, respaldo=None):
     s = EmbeddingService.__new__(EmbeddingService)
     s.client = principal
+    s.clientes_hf = [principal] if principal else []
     s.respaldo = respaldo
+    s.gemini = None
     return s
 
 
@@ -92,3 +94,44 @@ class TestModeloDelRespaldo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVariasLlavesDeHuggingFace(unittest.TestCase):
+    """
+    El crédito de HuggingFace es por cuenta, así que varias llaves dan varios
+    cupos del mismo modelo. Al ser el mismo modelo, sus vectores comparten el
+    espacio del índice: no hace falta reindexar ni cambiar umbrales.
+    """
+
+    def test_ordena_las_llaves_sin_repetir(self):
+        with patch("src.app.config.settings.HUGGINGFACEHUB_API_TOKEN", "hf_uno"), \
+             patch("src.app.config.settings.HUGGINGFACE_TOKENS_EXTRA", "hf_dos, hf_uno ,hf_tres"):
+            from src.app.config import settings
+            self.assertEqual(settings.huggingface_tokens, ["hf_uno", "hf_dos", "hf_tres"])
+
+    def test_tolera_comillas_y_espacios_del_panel(self):
+        with patch("src.app.config.settings.HUGGINGFACEHUB_API_TOKEN", "hf_uno"), \
+             patch("src.app.config.settings.HUGGINGFACE_TOKENS_EXTRA", '"hf_dos"'):
+            from src.app.config import settings
+            self.assertEqual(settings.huggingface_tokens, ["hf_uno", "hf_dos"])
+
+    def test_sin_llaves_extra_queda_solo_la_principal(self):
+        with patch("src.app.config.settings.HUGGINGFACEHUB_API_TOKEN", "hf_uno"), \
+             patch("src.app.config.settings.HUGGINGFACE_TOKENS_EXTRA", ""):
+            from src.app.config import settings
+            self.assertEqual(settings.huggingface_tokens, ["hf_uno"])
+
+    def test_si_la_primera_llave_se_queda_sin_credito_responde_la_segunda(self):
+        """El caso real: 402 en la primera, la segunda entrega el vector."""
+        primera = ProveedorFalso(error=RuntimeError('402 depleted monthly credits'))
+        segunda = ProveedorFalso(vector=[0.7] * 1024)
+        s = servicio(primera)
+        s.clientes_hf = [primera, segunda]
+        self.assertEqual(s.embed_query_sync("hola")[0], 0.7)
+
+    def test_todas_las_llaves_usan_el_mismo_espacio(self):
+        """Mismo modelo, mismos vectores: no se separa el índice."""
+        from src.app.core.rag.embeddings import ESPACIO_E5, ProveedorConNombre
+
+        envuelto = ProveedorConNombre(ProveedorFalso(vector=[0.1] * 1024), "huggingface[2]", ESPACIO_E5)
+        self.assertEqual(envuelto.espacio, ESPACIO_E5)

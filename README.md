@@ -128,6 +128,19 @@ Llama 3.3 70B, que además consume menos crédito.
 Sin modelo explícito se usa el de la configuración: `GROQ_MODEL`,
 `HUGGINGFACE_CHAT_MODEL`, `GEMINI_MODEL`.
 
+### Varias llaves de HuggingFace
+
+El crédito de HuggingFace se cuenta **por cuenta, no por token**: una llave de
+otra cuenta aporta cupo propio. Como es el mismo modelo, sus vectores comparten
+el espacio del índice y no hace falta reindexar nada.
+
+```
+HUGGINGFACEHUB_API_TOKEN=<llave principal>
+HUGGINGFACE_TOKENS_EXTRA=<llave de respaldo>[,<otra>...]
+```
+
+Si la primera se queda sin crédito, la siguiente responde sola.
+
 ### Respaldo de los embeddings
 
 > **Estado actual**: el respaldo por segundo modelo (Gemini) está implementado
