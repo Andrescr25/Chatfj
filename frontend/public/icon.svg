@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Chat FJ: balanza blanca sobre el verde de la interfaz. Está dibujada sobre la
+       cuadrícula de 16 px, con los bordes en píxeles enteros, para que en la pestaña
+       del navegador se vea blanca y nítida en lugar de un borrón. -->
+  <rect width="16" height="16" rx="3.5" fill="#10a37f"/>
+  <g fill="#fff">
+    <rect x="7" y="2" width="2" height="10"/>
+    <rect x="2" y="4" width="12" height="1"/>
+    <path d="M4 5 2 10h4zM12 5l-2 5h4z"/>
+    <rect x="4" y="12" width="8" height="2"/>
+  </g>
+</svg>
