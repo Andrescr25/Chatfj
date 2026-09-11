@@ -54,6 +54,10 @@ services:
       # Dominios adicionales permitidos por CORS, separados por coma
       - key: EXTRA_CORS_ORIGINS
         sync: false
+      # Latido para que Render no duerma el servicio: 24h, una franja como 7-22
+      # (hora de Costa Rica) u off. Ver docs/panel-administracion.md, sección 8.
+      - key: KEEP_ALIVE
+        value: 24h
 
     
   # Frontend

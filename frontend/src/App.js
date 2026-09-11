@@ -48,6 +48,11 @@ function App() {
     campo.style.height = `${Math.min(campo.scrollHeight, tope)}px`;
   }, [input]);
 
+  // Si Render tenía dormido el backend, empieza a arrancar al abrir la página.
+  useEffect(() => {
+    apiService.despertar();
+  }, []);
+
   // Estados de autenticación de súper usuario
   const [isAdminRoute, setIsAdminRoute] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(

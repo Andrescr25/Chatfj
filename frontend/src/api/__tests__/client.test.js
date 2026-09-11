@@ -255,4 +255,26 @@ describe('APIService', () => {
       );
     });
   });
+
+  describe('despertar', () => {
+    it('debe consultar /health sin sesión ni cabeceras', async () => {
+      // Con cabeceras, el navegador haría antes una consulta de CORS: el aviso
+      // para que el backend arranque debe ser lo más liviano posible.
+      localStorage.setItem('adminToken', 'token-de-prueba');
+      fetch.mockResolvedValueOnce({ ok: true });
+
+      await APIService.despertar();
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [url, config] = fetch.mock.calls[0];
+      expect(url).toMatch(/\/health$/);
+      expect(config).toBeUndefined();
+    });
+
+    it('no debe lanzar error si el backend no responde', async () => {
+      fetch.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      await expect(APIService.despertar()).resolves.toBeNull();
+    });
+  });
 });

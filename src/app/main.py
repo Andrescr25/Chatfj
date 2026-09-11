@@ -1,6 +1,8 @@
+import asyncio
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime, timezone
 
 import firebase_admin
 import uvicorn
@@ -13,7 +15,12 @@ from firebase_admin import credentials
 
 from src.app.api.v1.api import api_router
 from src.app.config import settings
+from src.app.core import keep_alive
 from src.app.utils.logging import logger
+
+# Instante en que arrancó este proceso. /health lo informa: si cambia entre dos
+# consultas, Render durmió o reinició el contenedor en ese lapso.
+ARRANQUE = datetime.now(timezone.utc)
 
 
 @asynccontextmanager
@@ -79,7 +86,20 @@ async def lifespan(app: FastAPI):
             "de responder. Configure LLM_CHAIN con más de un proveedor."
         )
 
+    # La referencia a la tarea vive aquí mientras corre la aplicación: sin ella,
+    # asyncio podría recolectarla y el latido se detendría sin aviso.
+    latido = keep_alive.iniciar(
+        settings.RENDER_EXTERNAL_URL,
+        settings.KEEP_ALIVE,
+        settings.KEEP_ALIVE_INTERVAL_SECONDS,
+    )
+
     yield
+
+    if latido:
+        latido.cancel()
+        with suppress(asyncio.CancelledError):
+            await latido
 
 
 app = FastAPI(
@@ -133,8 +153,20 @@ def read_root():
     return {"status": "online", "project": "ChatFJ API", "docs": "/docs"}
 
 @app.get("/health")
+@app.get(f"{settings.API_V1_STR}/health")
 def health_check():
-    return {"status": "ok", "version": "2.0.0"}
+    """
+    Estado del proceso, sin tocar servicios externos ni gastar crédito.
+
+    También responde bajo /api/v1, que es la base que conoce el frontend para
+    despertar el servicio al abrir la página.
+    """
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "activo_desde": ARRANQUE.isoformat(timespec="seconds"),
+        "segundos_activo": int((datetime.now(timezone.utc) - ARRANQUE).total_seconds()),
+    }
 
 # Static Files (for favicon, or simple serving if needed)
 # Se monta de último: un mount en "/" captura toda ruta no declarada antes,

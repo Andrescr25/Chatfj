@@ -173,30 +173,67 @@ Todos requieren rol de administrador.
 
 ## 8. Disponibilidad del servicio (mantenerlo despierto)
 
-Render suspende el contenedor tras 15 minutos sin tráfico, y quien pregunte
-después de esa pausa espera el arranque en frío.
+Render duerme un servicio gratuito tras **15 minutos sin tráfico entrante**, y
+quien pregunte después espera el arranque: unos 40 segundos medidos, más la
+respuesta.
 
-El flujo [.github/workflows/keep_alive.yml](../.github/workflows/keep_alive.yml)
-consulta `/health` **cada 10 minutos, solo de 6:50 a 21:50 de Costa Rica**. Fuera
-de ese horario el servicio duerme, que es justamente lo que abarata la operación.
+### Cómo se evita
 
-- El primer disparo del día (6:50) sirve de calentamiento: absorbe el arranque en
-  frío antes de que llegue la primera persona.
-- Espera hasta 90 segundos y reintenta 3 veces, porque despertar el contenedor
-  toma tiempo.
-- Si no obtiene un 200, el flujo **falla**, y GitHub avisa por correo. Funciona
-  entonces como monitoreo básico de caídas.
-- La dirección se puede cambiar sin tocar el código, con la variable de
-  repositorio `BACKEND_URL` (Settings → Secrets and variables → Actions →
-  Variables).
+1. **Latido interno** ([src/app/core/keep_alive.py](../src/app/core/keep_alive.py)).
+   El propio servidor consulta su dirección pública (`RENDER_EXTERNAL_URL`, que
+   Render define sola) cada 10 minutos. La petición entra por el proxy de Render
+   y cuenta como tráfico. Tras un fallo reintenta al minuto, porque esperar otros
+   10 dejaría pasar los 15 de Render.
+2. **Respaldo en GitHub Actions** ([keep_alive.yml](../.github/workflows/keep_alive.yml)).
+   Cubre el único caso que el latido no puede: si Render llega a dormir el
+   servicio, el latido se detiene con él. Si encuentra el servicio recién
+   arrancado tras una espera larga, el flujo **falla** y GitHub avisa por correo:
+   significa que el latido no lo sostuvo.
+3. **Despertar al abrir la página.** El frontend consulta `/api/v1/health` apenas
+   carga: si el servicio dormía, el arranque transcurre mientras la persona
+   escribe su pregunta.
+
+### Por qué no basta con GitHub Actions
+
+Era el mecanismo anterior. Programado cada 10 minutos, entre el 26 de agosto y el
+10 de setiembre de 2026 disparó en la práctica **una vez cada dos horas**
+(mediana), con 69 huecos de más de 15 minutos en horario diurno. Todas las
+ejecuciones figuraban como exitosas, porque cada una despertaba al servicio.
+
+### Configuración (variables de entorno en Render)
+
+| Variable | Valor | Efecto |
+|---|---|---|
+| `KEEP_ALIVE` | `24h` (predeterminado) | Siempre despierto |
+| | `7-22` | Solo de 7:00 a 22:00 de Costa Rica. De noche duerme, y la primera persona de la mañana espera el arranque |
+| | `off` | Sin latido |
+| `KEEP_ALIVE_INTERVAL_SECONDS` | `600` | Cada cuánto late. Nunca pasa de 14 minutos |
+
+Un valor de `KEEP_ALIVE` que no se entienda se trata como `24h` y deja una
+advertencia en los registros.
+
+### Cuidado con las horas gratuitas
+
+Render da **750 horas gratis al mes por espacio de trabajo**, compartidas entre
+**todos** sus servicios web gratuitos, y al agotarlas **suspende todos** hasta el
+mes siguiente. Mantener este servicio despierto las 24 horas consume 720 horas en
+un mes de 30 días y 744 en uno de 31: casi todo el cupo.
+
+Si el mismo espacio de trabajo tiene otro servicio gratuito que también se
+mantiene despierto, no alcanza para los dos. En ese caso use `KEEP_ALIVE=7-22`.
+
+### Comprobar que funciona
+
+`/health` informa `activo_desde`. Si ese valor no cambia entre dos consultas
+separadas por más de 15 minutos, el servicio no durmió en ese lapso. En los
+registros de Render, el latido deja `💓 Latido activo` al arrancar y solo vuelve
+a escribir si falla o se recupera.
 
 Detalles a tener presentes:
 
-- GitHub programa en UTC; Costa Rica es UTC-6 todo el año, así que el horario no
-  se corre con las estaciones.
-- Los horarios de GitHub Actions no son puntuales: pueden retrasarse algunos
-  minutos cuando la plataforma está cargada.
 - GitHub desactiva los flujos programados tras 60 días sin actividad en el
-  repositorio; si eso pasa, se reactivan desde la pestaña Actions.
-- Si el servicio de Render pasa a un plan de pago, deja de suspenderse solo y
-  este flujo se vuelve innecesario.
+  repositorio; si eso pasa, se reactivan desde la pestaña Actions. El latido
+  interno no depende de eso.
+- La dirección que consulta el respaldo se puede cambiar sin tocar el código, con
+  la variable de repositorio `BACKEND_URL` (Settings → Secrets and variables →
+  Actions → Variables).

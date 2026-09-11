@@ -1,20 +1,19 @@
-name: Mantener el backend despierto (horario diurno)
+name: Respaldo del latido de Render
 
-# Render suspende el servicio tras 15 minutos sin tráfico y el primer usuario del
-# día paga ese arranque en frío. Este flujo lo mantiene despierto solo mientras
-# hay gente usándolo: de 7:00 a 22:00 de Costa Rica. De noche se deja dormir.
+# El servicio se mantiene despierto por su cuenta: el propio servidor se consulta
+# cada 10 minutos (src/app/core/keep_alive.py). Este flujo es el respaldo para el
+# único caso que el latido no cubre: si Render llega a dormir el servicio, el
+# latido se detiene con él y alguien de afuera tiene que despertarlo.
+#
+# No sirve como mecanismo principal. Programado cada 10 minutos, entre el 26 de
+# agosto y el 10 de setiembre de 2026 disparó en la práctica una vez cada dos
+# horas (mediana), y el servicio pasaba dormido la mayor parte del día.
 
 on:
   schedule:
-    # GitHub Actions programa en UTC. Costa Rica es UTC-6 todo el año (sin horario de verano).
-    #
-    #   12:50 UTC = 06:50 CR  -> calentamiento previo a la apertura
-    #   13:00–23:50 UTC       -> 07:00–17:50 CR
-    #   00:00–03:50 UTC       -> 18:00–21:50 CR
-    #
-    # Último ping del día: 21:50 CR. Entre las 22:00 y las 6:50 el servicio duerme.
-    - cron: '50 12 * * *'
-    - cron: '*/10 13-23,0-3 * * *'
+    # Nunca en el minuto 0: GitHub advierte que el inicio de cada hora es el
+    # momento de más carga, cuando más se retrasan o descartan ejecuciones.
+    - cron: '4,14,24,34,44,54 * * * *'
   workflow_dispatch: # Permite ejecutarlo a mano desde la pestaña Actions
 
 concurrency:
@@ -40,10 +39,10 @@ jobs:
           set -uo pipefail
 
           echo "Consultando ${BACKEND_URL}/health"
+          inicio_total=$(date +%s)
 
-          # El primer ping del día puede tardar mientras Render levanta el
-          # contenedor: se espera hasta 90 s y se reintenta antes de dar por
-          # caído el servicio.
+          # Si el servicio dormía, Render tarda en levantarlo: se espera hasta
+          # 90 s y se reintenta antes de darlo por caído.
           for intento in 1 2 3; do
             inicio=$(date +%s)
             # curl ya escribe 000 cuando no logra conectar; el || solo cubre
@@ -56,10 +55,23 @@ jobs:
             duracion=$(( $(date +%s) - inicio ))
 
             if [ "$codigo" = "200" ]; then
-              echo "✅ Respondió 200 en ${duracion}s"
               cat /tmp/respuesta.json
               echo
-              echo "### Backend despierto — HTTP 200 en ${duracion}s" >> "$GITHUB_STEP_SUMMARY"
+              total=$(( $(date +%s) - inicio_total ))
+              activo=$(jq -r '.segundos_activo // empty' /tmp/respuesta.json 2>/dev/null || true)
+
+              # Proceso recién arrancado y respuesta lenta: estaba dormido y esta
+              # consulta lo despertó. Un despliegue reciente también reinicia el
+              # proceso, pero responde rápido, así que no se confunde con esto.
+              if [ -n "$activo" ] && [ "$activo" -lt 180 ] && [ "$total" -ge 20 ]; then
+                echo "::warning title=Backend dormido::Arrancó hace ${activo}s y tardó ${total}s en responder. El latido interno no lo mantuvo despierto."
+                echo "### ⚠️ El backend estaba dormido: arrancó hace ${activo}s y tardó ${total}s en responder" >> "$GITHUB_STEP_SUMMARY"
+                echo "El latido interno (src/app/core/keep_alive.py) no lo sostuvo. Revise los registros de Render." >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+
+              echo "✅ Despierto: respondió en ${total}s, activo desde hace ${activo:-?}s"
+              echo "### Backend despierto — respondió en ${total}s, activo hace ${activo:-?}s" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
 

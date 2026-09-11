@@ -104,6 +104,18 @@ class APIService {
   }
 
   /**
+   * Despierta el backend en cuanto se abre la página.
+   *
+   * Si Render lo tenía dormido, arrancarlo toma cerca de un minuto: así ese
+   * arranque corre mientras la persona escribe, y no después de enviar la
+   * primera pregunta. Va sin sesión ni cabeceras para no forzar una consulta
+   * previa de CORS, y nunca lanza error: es solo un aviso para que arranque.
+   */
+  despertar() {
+    return fetch(`${this.baseURL}/health`).catch(() => null);
+  }
+
+  /**
    * Enviar pregunta al chatbot
    */
   async ask(question, history = []) {

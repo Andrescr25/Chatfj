@@ -110,6 +110,17 @@ class Settings(BaseSettings):
     # CORS: dominios adicionales separados por coma
     EXTRA_CORS_ORIGINS: str = ""
 
+    # Latido para que Render no duerma el servicio (src/app/core/keep_alive.py):
+    # "24h" lo mantiene siempre despierto, "7-22" solo en esa franja de Costa
+    # Rica y "off" lo apaga. Ojo: Render da 750 horas gratis al mes POR ESPACIO DE
+    # TRABAJO, compartidas entre todos sus servicios gratuitos, y al agotarlas los
+    # suspende a todos hasta el mes siguiente. Con 24h este consume 720 a 744.
+    KEEP_ALIVE: str = "24h"
+    KEEP_ALIVE_INTERVAL_SECONDS: int = 600
+    # Render la define sola en cada servicio web (https://<servicio>.onrender.com).
+    # Fuera de Render no existe, y sin ella el latido no arranca.
+    RENDER_EXTERNAL_URL: Optional[str] = None
+
     model_config = {
         "env_file": "config/config.env",
         "case_sensitive": True,
