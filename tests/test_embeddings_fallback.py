@@ -219,5 +219,95 @@ class TestErrorDeHuggingFace(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
 
 
+class RespuestaDePinecone:
+    def __init__(self, status_code=200, vectores=1):
+        self.status_code = status_code
+        self.text = '{"error":{"message":"fallo simulado"}}'
+        self._vectores = vectores
+
+    def json(self):
+        return {"data": [{"values": [0.4] * 1024} for _ in range(self._vectores)]}
+
+
+class TestEmbeddingsPorPinecone(unittest.TestCase):
+    """
+    HuggingFace dejó de dar crédito mensual a las cuentas gratuitas (octubre de
+    2026): las dos llaves respondían 402 sin haberse usado y producción volvió
+    a contestar con 0 fuentes. Pinecone aloja el mismo modelo del índice.
+    """
+
+    def cliente(self):
+        from src.app.core.rag.embeddings import EmbeddingsPinecone
+
+        return EmbeddingsPinecone(api_key="pc_prueba", model="multilingual-e5-large")
+
+    def test_pinecone_va_primero_en_la_cascada(self):
+        pinecone = ProveedorFalso(vector=[0.4] * 1024)
+        huggingface = ProveedorFalso(vector=[0.1] * 1024)
+        s = servicio(huggingface)
+        s.pinecone = pinecone
+        self.assertEqual(s.embed_query_sync("hola")[0], 0.4)
+        self.assertEqual(huggingface.llamadas, 0)
+
+    def test_si_pinecone_falla_responde_huggingface(self):
+        pinecone = ProveedorFalso(error=ErrorDeEmbeddings("pinecone respondió 503", 503))
+        huggingface = ProveedorFalso(vector=[0.1] * 1024)
+        s = servicio(huggingface)
+        s.pinecone = pinecone
+        self.assertEqual(s.embed_query_sync("hola")[0], 0.1)
+
+    def test_la_pregunta_y_el_fragmento_se_declaran_distinto(self):
+        """
+        El modelo antepone "query: " o "passage: " según el tipo. Con el tipo
+        equivocado no falla: recupera peor, en silencio.
+        """
+        with patch("src.app.core.rag.embeddings.requests.post", return_value=RespuestaDePinecone()) as post:
+            self.cliente().embed_query("¿qué es una pensión alimentaria?")
+            self.assertEqual(post.call_args.kwargs["json"]["parameters"]["input_type"], "query")
+            self.cliente().embed_documents(["Artículo 1."])
+            self.assertEqual(post.call_args.kwargs["json"]["parameters"]["input_type"], "passage")
+
+    def test_un_documento_grande_se_parte_en_solicitudes_de_96(self):
+        def responder(*args, **kwargs):
+            return RespuestaDePinecone(vectores=len(kwargs["json"]["inputs"]))
+
+        with patch("src.app.core.rag.embeddings.requests.post", side_effect=responder) as post:
+            vectores = self.cliente().embed_documents(["fragmento"] * 200)
+        self.assertEqual(len(vectores), 200)
+        self.assertEqual([len(c.kwargs["json"]["inputs"]) for c in post.call_args_list], [96, 96, 8])
+
+    def test_una_llave_rechazada_no_se_reintenta(self):
+        with patch("src.app.core.rag.embeddings.requests.post", return_value=RespuestaDePinecone(401)) as post, \
+             self.assertRaises(ErrorDeEmbeddings) as capturado:
+            self.cliente().embed_query("hola")
+        self.assertEqual(capturado.exception.status_code, 401)
+        self.assertEqual(post.call_count, 1)
+
+    def test_un_fallo_pasajero_se_reintenta_una_vez(self):
+        respuestas = [RespuestaDePinecone(503), RespuestaDePinecone()]
+        with patch("src.app.core.rag.embeddings.requests.post", side_effect=respuestas) as post, \
+             patch("src.app.core.rag.embeddings.time.sleep") as pausa:
+            self.assertEqual(len(self.cliente().embed_query("hola")), 1024)
+        self.assertEqual(post.call_count, 2)
+        pausa.assert_called_once()
+
+    def test_no_se_activa_si_aloja_otro_modelo_que_el_del_indice(self):
+        """Vectores de otro modelo no son comparables con el índice."""
+        with patch("src.app.config.settings.PINECONE_API_KEY", "pc_prueba"), \
+             patch("src.app.config.settings.EMBEDDING_MODEL_NAME", "otro/modelo-distinto"):
+            s = EmbeddingService.__new__(EmbeddingService)
+            s.pinecone = None
+            s._inicializar_pinecone()
+            self.assertIsNone(s.pinecone)
+
+    def test_se_activa_con_la_llave_del_indice(self):
+        with patch("src.app.config.settings.PINECONE_API_KEY", "pc_prueba"), \
+             patch("src.app.config.settings.EMBEDDING_MODEL_NAME", "intfloat/multilingual-e5-large"):
+            s = EmbeddingService.__new__(EmbeddingService)
+            s.pinecone = None
+            s._inicializar_pinecone()
+            self.assertEqual(s.pinecone.model, "multilingual-e5-large")
+
+
 if __name__ == "__main__":
     unittest.main()

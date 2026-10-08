@@ -40,7 +40,7 @@ los documentos, y los documentos sobre el conocimiento general del modelo.
 | Interfaz | React 18, alojada en Firebase Hosting |
 | Servidor | Python 3.11, FastAPI + Uvicorn, desplegado en Render |
 | Base vectorial | Pinecone (índice `chatfj-legal-index`) |
-| Embeddings | `intfloat/multilingual-e5-large` vía HuggingFace |
+| Embeddings | `multilingual-e5-large`, alojado por Pinecone (HuggingFace de respaldo) |
 | Modelo de lenguaje | Cascada configurable: Groq, HuggingFace, Google Gemini |
 | Autenticación | Firebase Authentication (custom claims) |
 | Catálogo y bitácora | Firestore |
@@ -85,8 +85,8 @@ Hace falta un archivo `config/config.env` (no se versiona) con:
 | `LLM_CHAIN` | Cascada de modelos, en orden (ver abajo) |
 | `GROQ_API_KEY` / `GEMINI_API_KEY` | Llaves de los proveedores de lenguaje |
 | `EMBEDDINGS_FALLBACK_API_KEY` | Respaldo de embeddings (ver abajo) |
-| `PINECONE_API_KEY` | Base vectorial |
-| `HUGGINGFACEHUB_API_TOKEN` | Embeddings |
+| `PINECONE_API_KEY` | Base vectorial y embeddings |
+| `HUGGINGFACEHUB_API_TOKEN` | Respaldo de embeddings y de chat (exige crédito de pago) |
 | `ADMIN_EMAILS` | Correos con acceso garantizado al panel |
 | `FIREBASE_STORAGE_BUCKET` | `chatfj-26458.firebasestorage.app` |
 
@@ -112,6 +112,10 @@ Proveedores admitidos: `groq`, `gemini`, `omniroute`, `openrouter`.
 
 ### Respaldo actual: HuggingFace
 
+> **Octubre de 2026**: HuggingFace dejó de dar crédito mensual a las cuentas
+> gratuitas. Sin crédito comprado o una cuenta PRO, este respaldo responde 402
+> y la cascada lo salta.
+
 El token de HuggingFace que ya se usa para los embeddings (`HUGGINGFACEHUB_API_TOKEN`)
 sirve también para generar respuestas: su router es compatible con OpenAI. No hace
 falta registrarse en ningún servicio adicional.
@@ -127,6 +131,23 @@ Llama 3.3 70B, que además consume menos crédito.
 
 Sin modelo explícito se usa el de la configuración: `GROQ_MODEL`,
 `HUGGINGFACE_CHAT_MODEL`, `GEMINI_MODEL`.
+
+### Embeddings: Pinecone
+
+Los embeddings los genera la API de inferencia de Pinecone, que aloja el mismo
+modelo con el que se construyó el índice (`multilingual-e5-large`). Usa la
+`PINECONE_API_KEY` que ya se tiene, sin llave adicional, y su plan gratuito
+incluye 5 millones de tokens al mes: una pregunta gasta unos 20 y un fragmento
+de documento unos 250.
+
+Pasó a ser el proveedor principal en octubre de 2026, cuando HuggingFace dejó
+de dar crédito mensual a las cuentas gratuitas: las llaves respondían 402 sin
+haberse usado y el chat contestaba sin documentos. Los vectores ya indexados
+siguen sirviendo, así que no hizo falta reindexar ni cambiar el umbral. Las
+correcciones sí se regeneraron, con `scripts/reembed_corrections.py`.
+
+Se apaga con `EMBEDDINGS_PINECONE_ENABLED=false`. Las llaves de HuggingFace
+quedan detrás, como respaldo.
 
 ### Varias llaves de HuggingFace
 
@@ -153,7 +174,8 @@ Si la primera se queda sin crédito, la siguiente responde sola.
 
 Los embeddings son el punto más crítico: sin ellos no se puede indexar ni
 buscar, y el asistente responde **sin documentos y en silencio**. Pasó de
-verdad cuando se agotó el crédito mensual de HuggingFace.
+verdad dos veces: cuando se agotó el crédito mensual de HuggingFace y cuando
+HuggingFace lo eliminó para las cuentas gratuitas.
 
 Por eso admiten respaldo. La condición es que el proveedor sirva **el mismo
 modelo** (`intfloat/multilingual-e5-large`): vectores de otro modelo no son
@@ -172,7 +194,7 @@ Se probaron varias alternativas antes de elegir esta:
 | Proveedor | Estado (agosto 2026) |
 |---|---|
 | Groq | Capa gratuita recurrente. Es el proveedor principal |
-| HuggingFace | Funciona con el token que ya se tenía. Respaldo actual |
+| HuggingFace | Desde octubre de 2026 las cuentas gratuitas no reciben crédito mensual (402) |
 | Google Gemini | 20 solicitudes por día en `gemini-2.5-flash`; se agota enseguida |
 | Cerebras | Su capa gratuita son créditos que caducan a los 30 días |
 | SambaNova | Desde agosto de 2026 las cuentas nuevas exigen método de pago (402) |

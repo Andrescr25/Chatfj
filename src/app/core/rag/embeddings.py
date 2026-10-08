@@ -239,6 +239,88 @@ class EmbeddingsCompatiblesOpenAI:
         return vectores[0]
 
 
+class EmbeddingsPinecone:
+    """
+    El mismo modelo e5, servido por la API de inferencia de Pinecone.
+
+    Es el proveedor principal desde octubre de 2026: HuggingFace dejó de dar
+    crédito mensual a las cuentas gratuitas y sus llaves pasaron a responder
+    402. Pinecone aloja multilingual-e5-large, lo cuenta contra la llave que ya
+    se usa para el índice y su plan gratuito incluye 5 millones de tokens al
+    mes (una pregunta gasta unos 20; un fragmento de documento, unos 250).
+
+    El modelo exige declarar si el texto es una consulta o un fragmento, y le
+    antepone "query: " o "passage: ". Los vectores que guardó HuggingFace no
+    llevan prefijo, pero siguen siendo comparables. Medido contra el índice
+    real: el mismo fragmento da un coseno de 0,99 con su vector guardado, y 70
+    preguntas reales recuperaron en promedio 3,3 de los mismos 4 fragmentos con
+    un cambio de puntaje de +0,003. Por eso el umbral de búsqueda no cambia.
+    """
+
+    URL = "https://api.pinecone.io/embed"
+    VERSION_API = "2025-04"
+    # Límite del modelo: 96 textos por solicitud.
+    MAX_POR_SOLICITUD = 96
+    ESTADOS_PASAJEROS = (429, 500, 502, 503, 504)
+    # Quien pregunta está esperando; la indexación corre en segundo plano y
+    # puede aguardar a que pase la ventana del límite de tokens por minuto.
+    ESPERA_CONSULTA = 1.5
+    ESPERA_INDEXACION = 20
+
+    def __init__(self, api_key: str, model: str):
+        if not api_key:
+            raise ValueError("Falta la llave de API de Pinecone")
+        self.api_key = api_key
+        self.model = model
+        self.espacio = ESPACIO_E5
+        self.nombre = f"pinecone:{model}"
+
+    def _solicitar(self, textos: List[str], tipo: str) -> List[List[float]]:
+        cuerpo = {
+            "model": self.model,
+            # truncate=END: un texto más largo que el límite (507 tokens) se
+            # recorta en vez de hacer fallar el lote entero.
+            "parameters": {"input_type": tipo, "truncate": "END"},
+            "inputs": [{"text": t} for t in textos],
+        }
+        cabeceras = {
+            "Api-Key": self.api_key,
+            "Content-Type": "application/json",
+            "X-Pinecone-API-Version": self.VERSION_API,
+        }
+        espera = self.ESPERA_CONSULTA if tipo == "query" else self.ESPERA_INDEXACION
+
+        error = None
+        for intento in range(2):
+            try:
+                r = requests.post(self.URL, headers=cabeceras, json=cuerpo, timeout=30)
+            except requests.RequestException as e:
+                error = ErrorDeEmbeddings(f"{self.nombre} no respondió: {str(e)[:120]}")
+            else:
+                if r.status_code == 200:
+                    return [e["values"] for e in r.json().get("data", [])]
+                error = ErrorDeEmbeddings(
+                    f"{self.nombre} respondió {r.status_code}: {r.text[:160]}", r.status_code
+                )
+                if r.status_code not in self.ESTADOS_PASAJEROS:
+                    break
+            if intento == 0:
+                time.sleep(espera)
+        raise error
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        vectores = []
+        for i in range(0, len(texts), self.MAX_POR_SOLICITUD):
+            vectores.extend(self._solicitar(texts[i:i + self.MAX_POR_SOLICITUD], "passage"))
+        return vectores
+
+    def embed_query(self, text: str) -> List[float]:
+        vectores = self._solicitar([text], "query")
+        if not vectores or not vectores[0]:
+            raise ValueError(f"{self.nombre} devolvió un embedding vacío")
+        return vectores[0]
+
+
 class EmbeddingService:
     """
     Embeddings con respaldo.
@@ -251,11 +333,31 @@ class EmbeddingService:
     def __init__(self):
         self.client = None
         self.clientes_hf = []
+        self.pinecone = None
         self.respaldo = None
         self.gemini = None
+        self._inicializar_pinecone()
         self._initialize()
         self._inicializar_respaldo()
         self._test_api()
+
+    def _inicializar_pinecone(self):
+        """Proveedor principal: el modelo del índice, alojado por Pinecone."""
+        if not (settings.EMBEDDINGS_PINECONE_ENABLED and settings.PINECONE_API_KEY):
+            return
+        # Solo sirve si Pinecone aloja el MISMO modelo con el que se construyó
+        # el índice: con otro, las búsquedas devolverían cualquier cosa.
+        if settings.EMBEDDING_MODEL_NAME.split("/")[-1] != settings.PINECONE_EMBEDDING_MODEL:
+            logger.warning(
+                f"⚠️ Embeddings por Pinecone desactivados: aloja '{settings.PINECONE_EMBEDDING_MODEL}' "
+                f"y el índice se construyó con '{settings.EMBEDDING_MODEL_NAME}'."
+            )
+            return
+        self.pinecone = EmbeddingsPinecone(
+            api_key=settings.PINECONE_API_KEY,
+            model=settings.PINECONE_EMBEDDING_MODEL,
+        )
+        logger.info(f"🌲 Embeddings por Pinecone ({self.pinecone.model})")
 
     def _inicializar_respaldo(self):
         """
@@ -292,9 +394,14 @@ class EmbeddingService:
     def proveedores_e5(self) -> list:
         """
         Todos los que producen vectores del mismo modelo, en orden de uso:
-        las llaves de HuggingFace y, al final, el respaldo por otra pasarela.
+        Pinecone, las llaves de HuggingFace y, al final, el respaldo por otra
+        pasarela.
         """
-        proveedores = list(getattr(self, "clientes_hf", None) or ([self.client] if self.client else []))
+        pinecone = getattr(self, "pinecone", None)
+        proveedores = [pinecone] if pinecone is not None else []
+        proveedores += getattr(self, "clientes_hf", None) or (
+            [self.client] if self.client and self.client is not pinecone else []
+        )
         if self.respaldo is not None:
             proveedores.append(self.respaldo)
         return proveedores
@@ -468,6 +575,10 @@ class EmbeddingService:
             self.client = primero
             if len(self.clientes_hf) > 1:
                 logger.info(f"🧭 {len(self.clientes_hf)} llaves de HuggingFace en cascada")
+        elif self.pinecone is not None:
+            # Sin llaves de HuggingFace basta con Pinecone: cargar el modelo
+            # local costaría la memoria del contenedor para no usarlo nunca.
+            self.client = self.pinecone
         else:
             logger.warning("⚠️ HUGGINGFACEHUB_API_TOKEN no encontrado. Usando embeddings locales (Alto consumo de RAM)")
             try:

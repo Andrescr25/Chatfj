@@ -67,3 +67,5 @@ frontend/.firebase/
 # Documentos subidos desde el panel de administración
 data/uploads/
 data/documents_registry.json
+# Respaldos de vectores antes de una migración (scripts/reembed_corrections.py)
+data/respaldos/

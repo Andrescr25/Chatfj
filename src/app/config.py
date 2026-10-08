@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     
     # RAG / Embeddings
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
+    # Proveedor principal: la API de inferencia de Pinecone aloja el mismo
+    # modelo del índice y usa PINECONE_API_KEY, sin llave adicional. Su plan
+    # gratuito incluye 5 millones de tokens al mes.
+    EMBEDDINGS_PINECONE_ENABLED: bool = True
+    PINECONE_EMBEDDING_MODEL: str = "multilingual-e5-large"
+    # HuggingFace queda de respaldo. Ojo: desde octubre de 2026 las cuentas
+    # gratuitas ya no reciben crédito mensual y responden 402; estas llaves solo
+    # sirven con crédito comprado o con una cuenta PRO.
     HUGGINGFACEHUB_API_TOKEN: Optional[str] = None
     # Llaves adicionales de HuggingFace, separadas por coma. El crédito es por
     # cuenta, así que una llave de otra cuenta da cupo propio. Al ser el mismo
