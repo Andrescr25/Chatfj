@@ -1,4 +1,4 @@
-.PHONY: ayuda install dev front test test-back test-front lint format build deploy-front admin backfill inventario clean
+.PHONY: ayuda install dev front test test-back test-front lint format build deploy-front admin backfill respaldo-gemini inventario clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -53,6 +53,9 @@ admin:  ## Da acceso de administración. Uso: make admin EMAIL=persona@correo.cr
 
 backfill:  ## Reconcilia el catálogo de documentos con Pinecone
 	$(PY) scripts/backfill_documents_registry.py
+
+respaldo-gemini:  ## Copia al espacio de Gemini los fragmentos que le falten (retoma donde quedó)
+	EMBEDDINGS_GEMINI_ENABLED=true $(PY) scripts/backfill_espacio_gemini.py --lote 10 --pausa 6
 
 inventario:  ## Regenera docs/corpus.md con los documentos indexados
 	$(PY) scripts/export_corpus_inventory.py

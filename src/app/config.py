@@ -76,12 +76,16 @@ class Settings(BaseSettings):
 
     # Segundo modelo de embeddings (Gemini), en su propio espacio del índice.
     #
-    # Desactivado por defecto: su espacio quedó con 990 de 9.036 fragmentos
-    # porque la cuota gratuita de embeddings de Gemini permite ~1 petición por
-    # minuto, insuficiente para copiar un corpus. Con el espacio incompleto, la
-    # búsqueda de respaldo citaría el 11% del acervo como si fuera todo, que es
-    # peor que fallar. Se activa cuando el espacio esté completo.
-    EMBEDDINGS_GEMINI_ENABLED: bool = False
+    # Con esto activo, cada documento que se sube se indexa también en ese
+    # espacio. Para BUSCAR solo se usa si el espacio cubre el acervo (lo decide
+    # VectorStoreService.gemini_listo consultando el índice): a medias, el
+    # respaldo citaría una fracción de los documentos como si fueran todos, que
+    # es peor que fallar.
+    #
+    # La cuota gratuita de Gemini da 1.000 fragmentos por día (cada texto de un
+    # lote cuenta como una petición) y se repone a las 00:00 UTC. Lo que quede
+    # sin copiar se completa con scripts/backfill_espacio_gemini.py.
+    EMBEDDINGS_GEMINI_ENABLED: bool = True
     EMBEDDINGS_GEMINI_MODEL: str = "gemini-embedding-001"
     
     # Pinecone

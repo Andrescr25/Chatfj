@@ -510,17 +510,22 @@ class EmbeddingService:
         """Cascada dentro del mismo modelo: el vector siempre es comparable con e5."""
         return self._intentar(self.proveedores_e5, operacion, *args)
 
-    def embed_query_con_espacio(self, text: str) -> tuple:
+    def embed_query_con_espacio(self, text: str, gemini_listo=None) -> tuple:
         """
         Devuelve (vector, espacio del índice donde buscar).
 
         El espacio lo decide el modelo que generó el vector: buscar en el
         espacio equivocado no da error, da resultados sin sentido.
+
+        `gemini_listo` es una función que dice si el espacio de Gemini ya tiene
+        el acervo completo. Solo se consulta cuando e5 falla: con el espacio a
+        medias, el respaldo citaría una fracción de los documentos como si
+        fueran todos, que es peor que fallar.
         """
         try:
             return self._embed_query_e5(text), ESPACIO_E5
         except Exception as e:
-            if not self.gemini:
+            if not self.gemini or (gemini_listo is not None and not gemini_listo()):
                 raise
             logger.warning(
                 f"↪️ Embeddings: ningún proveedor de e5 respondió ({str(e)[:70]}). "

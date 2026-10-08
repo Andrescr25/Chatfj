@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -34,12 +35,43 @@ class Fragmento:
         self.metadata = metadata
 
 class VectorStoreService:
+    # El respaldo de Gemini se usa solo si su espacio tiene casi todo el
+    # acervo. El margen tolera que a un documento recién subido le falten sus
+    # copias hasta la siguiente corrida de scripts/backfill_espacio_gemini.py.
+    COBERTURA_MINIMA_GEMINI = 0.95
+    VIGENCIA_COBERTURA_SEGUNDOS = 600
+
     def __init__(self, embedding_service: EmbeddingService):
         self.embedding_service = embedding_service
         self.vectorstore = None
         self.pinecone_index = None  # Direct Pinecone index for namespace operations
         self.ultimo_espacio = ""
         self._initialize()
+
+    def gemini_listo(self) -> bool:
+        """
+        Dice si el espacio de Gemini cubre el acervo y puede servir de respaldo.
+
+        Se pregunta al índice en vez de confiar en una variable: una variable
+        puede quedar encendida con el espacio a medias, y entonces el respaldo
+        citaría una fracción de los documentos como si fueran todos.
+        """
+        from src.app.core.rag.embeddings import ESPACIO_E5, ESPACIO_GEMINI
+
+        revisado, listo = getattr(self, "_cobertura_gemini", (None, False))
+        if revisado is not None and time.monotonic() - revisado < self.VIGENCIA_COBERTURA_SEGUNDOS:
+            return listo
+
+        espacios = self.index_stats().get("namespaces") or {}
+        total = (espacios.get(ESPACIO_E5) or espacios.get("__default__") or {}).get("vector_count", 0)
+        copiados = (espacios.get(ESPACIO_GEMINI) or {}).get("vector_count", 0)
+        listo = total > 0 and copiados >= total * self.COBERTURA_MINIMA_GEMINI
+        if not listo:
+            logger.warning(
+                f"⏸️ Respaldo de Gemini sin usar: su espacio tiene {copiados} de {total} fragmentos."
+            )
+        self._cobertura_gemini = (time.monotonic(), listo)
+        return listo
 
     def _initialize(self):
         if settings.PINECONE_API_KEY and settings.PINECONE_ENV:
@@ -77,7 +109,9 @@ class VectorStoreService:
         loop = asyncio.get_running_loop()
 
         def _buscar():
-            vector, espacio = self.embedding_service.embed_query_con_espacio(query)
+            vector, espacio = self.embedding_service.embed_query_con_espacio(
+                query, gemini_listo=self.gemini_listo
+            )
             if not vector:
                 return []
 

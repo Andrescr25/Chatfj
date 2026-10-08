@@ -85,6 +85,7 @@ def main() -> None:
         return
 
     copiados = fallidos = 0
+    cuota_agotada = False
     inicio = time.time()
 
     for i in range(0, len(pendientes), args.lote):
@@ -116,12 +117,21 @@ def main() -> None:
                 copiados += len(textos)
                 break
             except Exception as e:
-                if "429" not in str(e) or intento == 5:
+                if "429" not in str(e):
                     fallidos += len(textos)
                     print(f"\n   ⚠️ Lote con error: {str(e)[:110]}")
                     break
+                if intento == 5:
+                    # Sigue en 429 tras varios minutos de espera: ya no es el
+                    # límite por minuto sino el diario. Insistir con cada lote
+                    # restante solo gastaría horas.
+                    cuota_agotada = True
+                    break
                 espera = min(espera * 2, 70)
                 time.sleep(espera)
+
+        if cuota_agotada:
+            break
 
         hechos = i + len(lote)
         ritmo = copiados / max(time.time() - inicio, 1) * 60
@@ -131,7 +141,10 @@ def main() -> None:
 
     print()
     print(f"✅ Copiados: {copiados} | ❌ Con error: {fallidos} | ⏱️ {time.time() - inicio:.0f}s")
-    print("   El espacio de Gemini queda como respaldo de la búsqueda.")
+    if cuota_agotada:
+        print("⏸️ Gemini agotó la cuota de hoy. Vuelva a correrlo mañana: retoma donde quedó.")
+    else:
+        print("   El espacio de Gemini queda como respaldo de la búsqueda.")
 
 
 if __name__ == "__main__":

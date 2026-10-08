@@ -94,6 +94,72 @@ class TestEleccionDelEspacio(unittest.TestCase):
             servicio(principal=ProveedorFalso(error=RuntimeError("402"))).embed_query_con_espacio("hola")
 
 
+class TestRespaldoSoloConElEspacioCompleto(unittest.TestCase):
+    """
+    El espacio de Gemini estuvo meses con el 10% del acervo. Usarlo así haría
+    que el asistente citara una fracción de los documentos como si fueran
+    todos, que es peor que fallar.
+    """
+
+    def test_con_el_espacio_a_medias_no_se_usa_el_respaldo(self):
+        gemini = ProveedorFalso(0.9, espacio=ESPACIO_GEMINI)
+        s = servicio(principal=ProveedorFalso(error=RuntimeError("402")), gemini=gemini)
+        with self.assertRaises(RuntimeError):
+            s.embed_query_con_espacio("hola", gemini_listo=lambda: False)
+        self.assertEqual(gemini.llamadas, 0)
+
+    def test_con_el_espacio_completo_el_respaldo_responde(self):
+        gemini = ProveedorFalso(0.9, espacio=ESPACIO_GEMINI)
+        _vector, espacio = servicio(
+            principal=ProveedorFalso(error=RuntimeError("402")), gemini=gemini
+        ).embed_query_con_espacio("hola", gemini_listo=lambda: True)
+        self.assertEqual(espacio, ESPACIO_GEMINI)
+
+    def test_si_e5_responde_ni_se_consulta_el_indice(self):
+        """La revisión cuesta una llamada a Pinecone: solo se hace si e5 falla."""
+        def no_debe_llamarse():
+            raise AssertionError("se consultó la cobertura sin necesidad")
+
+        _vector, espacio = servicio(
+            principal=ProveedorFalso(0.1), gemini=ProveedorFalso(0.9, espacio=ESPACIO_GEMINI)
+        ).embed_query_con_espacio("hola", gemini_listo=no_debe_llamarse)
+        self.assertEqual(espacio, ESPACIO_E5)
+
+    def almacen(self, total, copiados):
+        from src.app.core.rag.store import VectorStoreService
+
+        a = VectorStoreService.__new__(VectorStoreService)
+        a.consultas = 0
+
+        def index_stats():
+            a.consultas += 1
+            return {"namespaces": {
+                ESPACIO_E5: {"vector_count": total},
+                ESPACIO_GEMINI: {"vector_count": copiados},
+            }}
+
+        a.index_stats = index_stats
+        return a
+
+    def test_el_caso_real_990_de_9582_no_esta_listo(self):
+        self.assertFalse(self.almacen(9582, 990).gemini_listo())
+
+    def test_completo_esta_listo(self):
+        self.assertTrue(self.almacen(9582, 9582).gemini_listo())
+
+    def test_tolera_un_documento_recien_subido_sin_copiar(self):
+        self.assertTrue(self.almacen(9582, 9400).gemini_listo())
+
+    def test_un_indice_vacio_no_cuenta_como_completo(self):
+        self.assertFalse(self.almacen(0, 0).gemini_listo())
+
+    def test_no_pregunta_al_indice_en_cada_busqueda(self):
+        a = self.almacen(9582, 9582)
+        a.gemini_listo()
+        a.gemini_listo()
+        self.assertEqual(a.consultas, 1)
+
+
 class TestIndexadoEnAmbosEspacios(unittest.TestCase):
     def test_genera_vectores_para_los_dos_espacios(self):
         por_espacio = servicio(

@@ -164,13 +164,16 @@ Si la primera se queda sin crédito, la siguiente responde sola.
 
 ### Respaldo de los embeddings
 
-> **Estado actual**: el respaldo por segundo modelo (Gemini) está implementado
-> pero **desactivado**. Su espacio del índice quedó con 990 de 9.036 fragmentos,
-> porque la cuota gratuita de embeddings de Gemini permite alrededor de una
-> petición por minuto y copiar el corpus llevaría más de 130 horas. Con el
-> espacio incompleto, la búsqueda de respaldo citaría una fracción del acervo
-> como si fuera todo. Se activa con `EMBEDDINGS_GEMINI_ENABLED=true` cuando el
-> espacio esté completo.
+> **Estado (8 de octubre de 2026)**: el respaldo por segundo modelo (Gemini)
+> está **llenándose**. Su espacio del índice tiene 1.980 de 9.582 fragmentos:
+> la cuota gratuita de Gemini permite copiar 1.000 por día y se repone a las
+> 00:00 UTC. Se completa corriendo `make respaldo-gemini` una vez al día, que
+> retoma donde quedó y se detiene solo al agotar la cuota.
+>
+> No hay que encenderlo a mano. El sistema consulta el índice y usa el respaldo
+> para buscar solo cuando el espacio cubre al menos el 95% del acervo; con el
+> espacio a medias citaría una fracción de los documentos como si fueran todos.
+> Los documentos nuevos se indexan en ambos espacios desde ya.
 
 Los embeddings son el punto más crítico: sin ellos no se puede indexar ni
 buscar, y el asistente responde **sin documentos y en silencio**. Pasó de
