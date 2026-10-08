@@ -34,7 +34,7 @@ jobs:
       - name: Consultar el estado del backend
         env:
           # Se puede sobrescribir con una variable del repositorio (Settings > Variables)
-          BACKEND_URL: ${{ vars.BACKEND_URL || 'https://chatfj-m63k.onrender.com' }}
+          BACKEND_URL: ${{ vars.BACKEND_URL || 'https://chatfj-qjdb.onrender.com' }}
         run: |
           set -uo pipefail
 

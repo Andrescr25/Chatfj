@@ -9,7 +9,7 @@ orientación, no asesoría legal.
 
 - **Sitio público**: https://chatfj-26458.web.app
 - **Panel de administración**: https://chatfj-26458.web.app/admin
-- **API**: https://chatfj-m63k.onrender.com
+- **API**: https://chatfj-qjdb.onrender.com
 
 ## Cómo funciona
 
