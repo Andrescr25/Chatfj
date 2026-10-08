@@ -167,8 +167,9 @@ Si la primera se queda sin crédito, la siguiente responde sola.
 > **Estado (8 de octubre de 2026)**: el respaldo por segundo modelo (Gemini)
 > está **llenándose**. Su espacio del índice tiene 1.980 de 9.582 fragmentos:
 > la cuota gratuita de Gemini permite copiar 1.000 por día y se repone a las
-> 00:00 UTC. Se completa corriendo `make respaldo-gemini` una vez al día, que
-> retoma donde quedó y se detiene solo al agotar la cuota.
+> 00:00 UTC. Lo completa solo el flujo de GitHub Actions "Respaldo de embeddings
+> (Gemini)", que corre a diario, retoma donde quedó y se detiene al agotar la
+> cuota. A mano se hace lo mismo con `make respaldo-gemini`.
 >
 > No hay que encenderlo a mano. El sistema consulta el índice y usa el respaldo
 > para buscar solo cuando el espacio cubre al menos el 95% del acervo; con el

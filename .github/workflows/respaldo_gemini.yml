@@ -1,0 +1,69 @@
+name: Respaldo de embeddings (Gemini)
+
+# El respaldo de embeddings por Gemini vive en un espacio aparte del índice y
+# necesita una copia de todo el acervo. La cuota gratuita de Gemini permite
+# 1.000 fragmentos por día y se repone a las 00:00 UTC, así que la copia se hace
+# por tandas diarias: el script retoma donde quedó y se detiene solo al agotar
+# la cuota.
+#
+# Con el espacio completo sigue corriendo: cubre los documentos nuevos a los que
+# les haya faltado su copia al subirlos (por ejemplo, si ese día ya no quedaba
+# cuota). Sin nada pendiente termina en segundos.
+#
+# Necesita dos secretos del repositorio: PINECONE_API_KEY y GEMINI_API_KEY.
+
+on:
+  schedule:
+    # Poco después de que se repone la cuota, y un segundo intento por si GitHub
+    # descarta el primero. Nunca en el minuto 0 (ver keep_alive.yml).
+    - cron: '23 0 * * *'
+    - cron: '23 8 * * *'
+  workflow_dispatch: # Permite ejecutarlo a mano desde la pestaña Actions
+
+concurrency:
+  group: respaldo-gemini
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  copiar:
+    name: Copiar fragmentos pendientes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # la misma que usa Render
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Copiar al espacio de Gemini
+        env:
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PINECONE_INDEX_NAME: legal-index
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -o pipefail
+          python scripts/backfill_espacio_gemini.py --lote 10 --pausa 6 2>&1 \
+            | stdbuf -oL tr '\r' '\n' \
+            | tee salida.txt \
+            | grep --line-buffered -E '📊|✅|❌|⚠️|⏸️|00/'
+
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo '### Respaldo de embeddings (Gemini)'
+            echo '```'
+            grep -E '📊|✅|❌|⏸️' salida.txt || echo 'El script no llegó a informar nada: revise el paso anterior.'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
